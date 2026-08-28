@@ -264,9 +264,11 @@
 
 ## 9. 相关文件
 
-- `examples/52_code_buddy_AI BOX/51_mic_wifi.ino` — 主程序（按键 + 界面 + 触摸）
-- `examples/52_code_buddy_AI BOX/AtkBoxTouch.h` — CHSC5432 触摸驱动
-- `examples/52_code_buddy_AI BOX/AtkBoxXL9555.h` — XL9555 按键读取
-- `examples/52_code_buddy_AI BOX/espnow_protocol.h` — HID 键码 + 状态帧
-- `examples/52_code_buddy_AI BOX/按键交互设计.md` — 旧版 K10 交互设计（参考）
-- `examples/52_code_buddy_AI BOX/状态显示功能.md` — 六界面 UI 规格（参考）
+> ⚠️ **目录警告**：实际编译目录是 `examples/52_codebuddy_ai_box`（下划线，`platformio.ini` 中 `default_envs = 52_codebuddy_ai_box`）。存在同名的 `examples/52_code_buddy_AI BOX`（含空格）是**旧的、不参与编译的副本**，源码已过时。所有实现改动必须落在**下划线目录**。
+
+- `examples/52_codebuddy_ai_box/51_mic_wifi.ino` — 主程序（按键 + 界面 + 触摸）【编译目标】
+- `examples/52_codebuddy_ai_box/AtkBoxTouch.h` — CHSC5432 触摸驱动
+- `examples/52_codebuddy_ai_box/AtkBoxXL9555.h` — XL9555 按键读取
+- `examples/52_codebuddy_ai_box/espnow_protocol.h` — HID 键码 + 状态帧
+- `examples/52_code_buddy_AI BOX/按键交互设计.md` — 旧版 K10 交互设计（仅参考，勿改）
+- `examples/52_code_buddy_AI BOX/状态显示功能.md` — 六界面 UI 规格（仅参考，勿改）
