@@ -162,6 +162,10 @@ static void show_detail_card(const char *title, const char *body);
 static void close_detail_card();
 static bool detail_card_open();
 static void detail_card_bg_event(lv_event_t *e);
+static void start_typing_animation();
+static void inspo_title_event(lv_event_t *e);
+static void inspo_body_event(lv_event_t *e);
+static void profile_img_event(lv_event_t *e);
 
 // ======================= ESP-NOW 回调 =======================
 static void espnow_send_cb(const uint8_t *mac, esp_now_send_status_t status) {
@@ -776,6 +780,26 @@ static void create_screen_inspo() {
     lv_obj_set_style_text_color(label_inspo_content, lv_color_hex(0xE0E0E0), 0);
     lv_obj_set_style_text_line_space(label_inspo_content, 4, 0);
     lv_obj_align(label_inspo_content, LV_ALIGN_TOP_LEFT, 12, 70);
+
+    // 触摸: 单击标题重启打字机, 单击正文暂停/继续
+    lv_obj_add_flag(label_inspo_title, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(label_inspo_title, inspo_title_event, LV_EVENT_CLICKED, NULL);
+    lv_obj_add_flag(label_inspo_content, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(label_inspo_content, inspo_body_event, LV_EVENT_CLICKED, NULL);
+}
+
+// 单击标题 -> 重启打字机动画
+static void inspo_title_event(lv_event_t *e) {
+    (void)e;
+    start_typing_animation();
+    Serial.println("Inspo: typing restarted (tap title)");
+}
+
+// 单击正文 -> 暂停/继续打字机
+static void inspo_body_event(lv_event_t *e) {
+    (void)e;
+    inspo_typing_active = !inspo_typing_active;
+    Serial.printf("Inspo: typing %s (tap body)\n", inspo_typing_active ? "resumed" : "paused");
 }
 
 // 启动打字动画
@@ -863,6 +887,8 @@ static void create_screen_profile() {
         profile_image = lv_img_create(screen_profile);
         lv_img_set_src(profile_image, profile_image_path);
         lv_obj_align(profile_image, LV_ALIGN_CENTER, 0, -20);
+        lv_obj_add_flag(profile_image, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_add_event_cb(profile_image, profile_img_event, LV_EVENT_CLICKED, NULL);
         Serial.printf("Profile: Loading image from %s\n", profile_image_path);
     } else {
         // 降级方案：渐变色块 (代替照片, 200x240 居中)
@@ -874,6 +900,8 @@ static void create_screen_profile() {
         lv_obj_set_style_radius(profile_gradient, 12, 0);
         lv_obj_set_style_border_width(profile_gradient, 0, 0);
         lv_obj_align(profile_gradient, LV_ALIGN_CENTER, 0, -20);
+        lv_obj_add_flag(profile_gradient, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_add_event_cb(profile_gradient, profile_img_event, LV_EVENT_CLICKED, NULL);
         Serial.println("Profile: Using gradient fallback (SD card not ready)");
     }
 
@@ -882,6 +910,16 @@ static void create_screen_profile() {
     lv_obj_set_style_text_font(label_profile_name, &lv_font_montserrat_28, 0);
     lv_obj_set_style_text_color(label_profile_name, lv_color_hex(0xFFFF00), 0);
     lv_obj_align(label_profile_name, LV_ALIGN_CENTER, 0, 80);
+}
+
+// 单击头像 -> 切换下一张 (回调在 lv_task_handler 持锁上下文, 可直接调 update)
+static void profile_img_event(lv_event_t *e) {
+    (void)e;
+    if (profile_count > 1) {
+        profile_index = (profile_index + 1) % profile_count;
+        Serial.printf("Profile: switched to user %d (tap)\n", profile_index + 1);
+        update_screen_profile();
+    }
 }
 
 static void update_screen_profile() {
