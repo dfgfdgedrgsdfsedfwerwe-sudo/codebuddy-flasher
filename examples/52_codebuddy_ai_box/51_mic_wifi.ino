@@ -545,6 +545,41 @@ static lv_obj_t *choice_option_b = NULL;     // 选项 B
 static uint8_t   choice_selected = 0;        // 当前选中 0=A, 1=B
 static bool      choice_confirmed = false;   // 是否已确认
 
+// 状态码 -> 文字 (供触摸回调复用; update_screen_project 内另有带颜色的完整表)
+static const char *project_status_text(uint8_t code) {
+    static const char *names[] = {"Planning", "Coding", "Review Needed",
+                                  "Completed", "Error", "Idle"};
+    return (code < 6) ? names[code] : "Unknown";
+}
+
+// 点击项目名 -> 弹详情卡片
+static void project_row_event(lv_event_t *e) {
+    uint8_t i = (uint8_t)(intptr_t)lv_event_get_user_data(e);
+    if (!project_data_valid || i >= project_data.count) return;
+    static char body[96];
+    snprintf(body, sizeof(body), "Status: %s\nProject #%d of %d",
+             project_status_text(project_data.items[i].status_code),
+             i + 1, project_data.count);
+    show_detail_card(project_data.items[i].name, body);
+}
+
+// 点击圆点 -> 循环切状态: Planning->Coding->Review->Completed->Idle->Planning
+static void project_dot_event(lv_event_t *e) {
+    uint8_t i = (uint8_t)(intptr_t)lv_event_get_user_data(e);
+    if (!project_data_valid || i >= project_data.count) return;
+    uint8_t c = project_data.items[i].status_code;
+    switch (c) {
+        case 0: c = 1; break;
+        case 1: c = 2; break;
+        case 2: c = 3; break;
+        case 3: c = 5; break;
+        default: c = 0; break;
+    }
+    project_data.items[i].status_code = c;
+    Serial.printf("Project %d status -> %d\n", i, c);
+    screen_dirty = true;   // 主循环 update_screen_project() 会重绘圆点与文字
+}
+
 static void create_screen_project() {
     screen_project = lv_obj_create(NULL);
     lv_obj_set_style_bg_color(screen_project, lv_color_hex(0x0D0D0D), 0);
@@ -584,6 +619,16 @@ static void create_screen_project() {
         project_rows[i].status_label = lv_label_create(screen_project);
         lv_obj_set_style_text_font(project_rows[i].status_label, &lv_font_montserrat_12, 0);
         lv_obj_align(project_rows[i].status_label, LV_ALIGN_TOP_LEFT, 28, y + 18);
+
+        // 圆点命中区放大 (视觉仍 10px)，点击切状态
+        lv_obj_set_ext_click_area(project_rows[i].dot, 15);
+        lv_obj_add_flag(project_rows[i].dot, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_add_event_cb(project_rows[i].dot, project_dot_event,
+                            LV_EVENT_CLICKED, (void*)(intptr_t)i);
+        // 点击项目名弹详情
+        lv_obj_add_flag(project_rows[i].name_label, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_add_event_cb(project_rows[i].name_label, project_row_event,
+                            LV_EVENT_CLICKED, (void*)(intptr_t)i);
     }
 
     // 选择题交互区 (底部, 演示模式下显示 Claude 提问)
