@@ -119,6 +119,7 @@ static lv_obj_t *screen_inspo = NULL;
 static lv_obj_t *screen_profile = NULL;
 static lv_obj_t *screen_ai_status = NULL;
 static lv_obj_t *screen_touch_test = NULL;  // 触摸测试界面
+static lv_obj_t *detail_card_bg = NULL;     // 详情卡片遮罩层 (NULL=未打开)
 
 // FreeRTOS 互斥锁
 static SemaphoreHandle_t xGuiSemaphore;
@@ -157,6 +158,10 @@ static void update_screen_inspo();
 static void update_screen_profile();
 static void update_screen_ai_status();
 static void switch_screen(uint8_t screen_num);
+static void show_detail_card(const char *title, const char *body);
+static void close_detail_card();
+static bool detail_card_open();
+static void detail_card_bg_event(lv_event_t *e);
 
 // ======================= ESP-NOW 回调 =======================
 static void espnow_send_cb(const uint8_t *mac, esp_now_send_status_t status) {
@@ -1148,6 +1153,63 @@ static void update_screen_touch_test() {
 }
 
 // 切换界面 (操作 LVGL 前必须持有 xGuiSemaphore, 避免与动画刷新/lv_task_handler 竞态卡死)
+// ======================= 通用详情卡片 (界面 1/2 复用) =======================
+static bool detail_card_open() { return detail_card_bg != NULL; }
+
+static void close_detail_card() {
+    if (detail_card_bg) {
+        lv_obj_del(detail_card_bg);   // 删遮罩会连带删子对象(卡片)
+        detail_card_bg = NULL;
+    }
+}
+
+// 点击遮罩空白处关闭；点击卡片本体不关闭
+static void detail_card_bg_event(lv_event_t *e) {
+    lv_obj_t *target = lv_event_get_target(e);
+    if (target == detail_card_bg) {
+        close_detail_card();
+    }
+}
+
+static void show_detail_card(const char *title, const char *body) {
+    close_detail_card();  // 先关旧的，避免叠加占用 PSRAM
+
+    // 半透明遮罩 (覆盖当前活动屏幕)
+    detail_card_bg = lv_obj_create(lv_scr_act());
+    lv_obj_set_size(detail_card_bg, 240, 320);
+    lv_obj_align(detail_card_bg, LV_ALIGN_CENTER, 0, 0);
+    lv_obj_set_style_bg_color(detail_card_bg, lv_color_hex(0x000000), 0);
+    lv_obj_set_style_bg_opa(detail_card_bg, LV_OPA_60, 0);
+    lv_obj_set_style_border_width(detail_card_bg, 0, 0);
+    lv_obj_set_style_radius(detail_card_bg, 0, 0);
+    lv_obj_clear_flag(detail_card_bg, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag(detail_card_bg, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(detail_card_bg, detail_card_bg_event, LV_EVENT_CLICKED, NULL);
+
+    // 卡片本体
+    lv_obj_t *card = lv_obj_create(detail_card_bg);
+    lv_obj_set_size(card, 210, 240);
+    lv_obj_align(card, LV_ALIGN_CENTER, 0, 0);
+    lv_obj_set_style_bg_color(card, lv_color_hex(0x1F2937), 0);
+    lv_obj_set_style_radius(card, 12, 0);
+    lv_obj_set_style_border_width(card, 1, 0);
+    lv_obj_set_style_border_color(card, lv_color_hex(0x374151), 0);
+
+    lv_obj_t *lbl_title = lv_label_create(card);
+    lv_obj_set_style_text_font(lbl_title, &lv_font_montserrat_18, 0);
+    lv_obj_set_style_text_color(lbl_title, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_align(lbl_title, LV_ALIGN_TOP_LEFT, 0, 0);
+    lv_label_set_text(lbl_title, title);
+
+    lv_obj_t *lbl_body = lv_label_create(card);
+    lv_obj_set_style_text_font(lbl_body, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_color(lbl_body, lv_color_hex(0xD1D5DB), 0);
+    lv_label_set_long_mode(lbl_body, LV_LABEL_LONG_WRAP);
+    lv_obj_set_width(lbl_body, 186);
+    lv_obj_align(lbl_body, LV_ALIGN_TOP_LEFT, 0, 34);
+    lv_label_set_text(lbl_body, body);
+}
+
 static void switch_screen(uint8_t screen_num) {
     uint8_t old_screen = current_screen;
     current_screen = screen_num % 7;  // 现在是 7 个界面 (0-5 + 6触摸测试)
@@ -1611,7 +1673,12 @@ void loop() {
         uint16_t x, y;
         bool is_pressed = touch.scan(&x, &y);
 
-        if (is_pressed && !swipe_in_progress) {
+        // 详情卡片打开时，触摸交给 LVGL(点击遮罩关闭)，不做滑动切屏
+        if (detail_card_open()) {
+            swipe_in_progress = false;
+            swipe_start_x = -1;
+            swipe_start_y = -1;
+        } else if (is_pressed && !swipe_in_progress) {
             // 开始触摸，记录起点
             swipe_start_x = x;
             swipe_start_y = y;
