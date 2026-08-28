@@ -946,7 +946,12 @@ static void profile_img_event(lv_event_t *e) {
 static void update_screen_profile() {
     if (profile_count > 0 && profile_image != NULL) {
         // 有扫描到的头像 → 加载当前索引
-        lv_img_set_src(profile_image, profile_paths[profile_index]);
+        // 仅在图片索引变化时才重设源 (lv_img_set_src 会触发 PNG 从 SD 重解码, 每次切屏都调会卡顿)
+        static int8_t loaded_profile_index = -1;
+        if (loaded_profile_index != (int8_t)profile_index) {
+            loaded_profile_index = (int8_t)profile_index;
+            lv_img_set_src(profile_image, profile_paths[profile_index]);
+        }
         lv_label_set_text_fmt(label_profile_name, "User %d", profile_index + 1);
     } else {
         // 演示数据将在 inject_demo_data() 中填充 (演示模式备用)
