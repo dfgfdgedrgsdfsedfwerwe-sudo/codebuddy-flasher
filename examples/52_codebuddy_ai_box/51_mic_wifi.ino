@@ -120,6 +120,7 @@ static lv_obj_t *screen_profile = NULL;
 static lv_obj_t *screen_ai_status = NULL;
 static lv_obj_t *screen_touch_test = NULL;  // 触摸测试界面
 static lv_obj_t *detail_card_bg = NULL;     // 详情卡片遮罩层 (NULL=未打开)
+static uint32_t last_swipe_ms = 0;          // 上次左右滑动切屏时间戳 (供屏幕级点击回调过滤滑动)
 
 // FreeRTOS 互斥锁
 static SemaphoreHandle_t xGuiSemaphore;
@@ -166,6 +167,8 @@ static void start_typing_animation();
 static void inspo_title_event(lv_event_t *e);
 static void inspo_body_event(lv_event_t *e);
 static void profile_img_event(lv_event_t *e);
+static void ai_face_event(lv_event_t *e);
+static void token_row_event(lv_event_t *e);
 
 // ======================= ESP-NOW 回调 =======================
 static void espnow_send_cb(const uint8_t *mac, esp_now_send_status_t status) {
@@ -381,6 +384,19 @@ typedef struct {
 static lv_obj_t *label_title_1;
 static token_row_t token_rows[TOKEN_MAX_ITEMS];
 
+// 点击服务名 -> 弹用量详情卡片
+static void token_row_event(lv_event_t *e) {
+    uint8_t i = (uint8_t)(intptr_t)lv_event_get_user_data(e);
+    if (!token_data_valid || i >= token_data.count) return;
+    uint16_t pct = token_data.items[i].percent_x10;
+    static char body[96];
+    snprintf(body, sizeof(body), "Usage: %u.%u%%\nUsed: %lu\nTotal: %lu",
+             pct / 10, pct % 10,
+             (unsigned long)token_data.items[i].used,
+             (unsigned long)token_data.items[i].total);
+    show_detail_card(token_data.items[i].name, body);
+}
+
 static void create_screen_token() {
     screen_token = lv_obj_create(NULL);
     lv_obj_set_style_bg_color(screen_token, lv_color_hex(0x0D0D0D), 0);
@@ -432,6 +448,11 @@ static void create_screen_token() {
         lv_obj_set_style_text_font(token_rows[i].amount_label, &lv_font_montserrat_12, 0);
         lv_obj_set_style_text_color(token_rows[i].amount_label, lv_color_hex(0x888888), 0);
         lv_obj_align(token_rows[i].amount_label, LV_ALIGN_TOP_LEFT, 12, y + 34);
+
+        // 点击服务名 -> 弹用量详情卡片
+        lv_obj_add_flag(token_rows[i].name_label, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_add_event_cb(token_rows[i].name_label, token_row_event,
+                            LV_EVENT_CLICKED, (void*)(intptr_t)i);
     }
 }
 
@@ -1045,6 +1066,22 @@ static void create_screen_ai_status() {
         lv_obj_clear_flag(face_mouth, LV_OBJ_FLAG_SCROLLABLE);
         lv_obj_align(face_mouth, LV_ALIGN_CENTER, FACE_MOUTH_X, FACE_MOUTH_Y);
     }
+
+    // 触摸: 单击屏幕任意处切换 AI 情绪 (挂在屏幕上, 覆盖图片/五官叠层)
+    lv_obj_add_flag(screen_ai_status, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(screen_ai_status, ai_face_event, LV_EVENT_CLICKED, NULL);
+}
+
+// 单击 -> 切换 AI 情绪 (Thinking->Coding->Done->循环), 暂停自动循环 15s
+static void ai_face_event(lv_event_t *e) {
+    (void)e;
+    // 过滤滑动: 刚发生过左右滑动切屏时, 屏幕级 CLICKED 不当作点击
+    if (millis() - last_swipe_ms < 400) return;
+    ai_state = (ai_state_t)(((int)ai_state + 1) % AI_STATE_COUNT);
+    ai_external_override = true;      // 暂停自动循环
+    ai_last_ext_frame = millis();     // 15s 后恢复自动
+    ai_state_changed = true;          // 触发表情应用
+    Serial.printf("AI emotion -> %d (tap)\n", (int)ai_state);
 }
 
 // 应用某个 AI 情绪状态: 设置眉毛位置/嘴型/文字 (在状态切换时调用一次)
@@ -1785,6 +1822,7 @@ void loop() {
                         order_index = (order_index + 1) % 7;
                         Serial.printf("Swipe LEFT -> screen %d\n", SCREEN_ORDER[order_index]);
                     }
+                    last_swipe_ms = millis();  // 标记刚滑动过, 供屏幕级点击回调(AI情绪)过滤
                     switch_screen(SCREEN_ORDER[order_index]);
                 }
 
