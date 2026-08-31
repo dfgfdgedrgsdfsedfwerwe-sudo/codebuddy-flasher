@@ -1687,6 +1687,61 @@ void setup() {
 void loop() {
     uint32_t now = millis();
 
+    // --- 决策请求: 收到 0x0A 后切到决策界面 (screen 7) ---
+    if (g_decision_pending) {
+        g_decision_pending = false;
+        g_decision_active = true;
+        g_decision_sel = -1;
+        g_decision_deadline_ms = millis() + 15000;   // 15s 超时
+        switch_screen(7);
+    }
+
+    // --- 决策界面激活: 触摸命中 + 超时; 暂停常规按键/轮换, 但 LVGL 刷新照常 ---
+    if (g_decision_active) {
+        // 超时: 发 0xFF 回执, 退出决策界面
+        if ((int32_t)(millis() - g_decision_deadline_ms) >= 0) {
+            send_decision_reply(g_decision_req.decision_id, 0xFF);
+            g_decision_active = false;
+            switch_screen(SCREEN_ORDER[order_index]);   // 回到轮换界面
+        } else {
+            uint16_t tx, ty;
+            static uint32_t last_touch_ms = 0;
+            if (touch.scan(&tx, &ty) && (millis() - last_touch_ms > 250)) {
+                last_touch_ms = millis();
+                // 命中选项?
+                bool hit = false;
+                for (int i = 0; i < g_decision_req.opt_count; i++) {
+                    int y0 = DEC_OPT_Y0 + i * DEC_OPT_GAP;
+                    if (tx >= DEC_OPT_X && tx <= DEC_OPT_X + DEC_OPT_W &&
+                        ty >= y0 && ty <= y0 + DEC_OPT_H) {
+                        g_decision_sel = i;
+                        hit = true;
+                        if (xGuiSemaphore && xSemaphoreTake(xGuiSemaphore, portMAX_DELAY) == pdTRUE) {
+                            update_screen_decision();
+                            xSemaphoreGive(xGuiSemaphore);
+                        }
+                        break;
+                    }
+                }
+                // 命中确认键且已选?
+                if (!hit && g_decision_sel >= 0 &&
+                    tx >= DEC_OPT_X && tx <= DEC_OPT_X + DEC_OPT_W &&
+                    ty >= DEC_CONFIRM_Y && ty <= DEC_CONFIRM_Y + DEC_CONFIRM_H) {
+                    send_decision_reply(g_decision_req.decision_id, (uint8_t)g_decision_sel);
+                    g_decision_active = false;
+                    switch_screen(SCREEN_ORDER[order_index]);
+                }
+            }
+        }
+        // 决策界面激活时跳过常规按键/轮换/音频, 但 lv_task_handler 仍需跑 (界面刷新)
+        if (pdTRUE == xSemaphoreTake(xGuiSemaphore, portMAX_DELAY)) {
+            lv_task_handler();
+            xSemaphoreGive(xGuiSemaphore);
+        }
+        delay(2);
+        return;
+    }
+
     // --- A+B 同时长按 2 秒: 触发演示模式 ---
     static uint32_t both_press_start = 0;
     static bool both_pressed_before = false;
