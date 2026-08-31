@@ -100,6 +100,13 @@ static bool token_data_valid = false;
 static project_status_frame_t project_data;
 static bool project_data_valid = false;
 
+// 决策状态 (Claude Code ⇄ K10 双向触摸决策)
+static decision_request_frame_t g_decision_req;
+static volatile bool g_decision_pending = false;  // 收到新请求待切界面
+static volatile bool g_decision_active  = false;  // 决策界面正显示中
+static uint32_t g_decision_deadline_ms = 0;       // 超时时刻
+static int g_decision_sel = -1;                   // 当前高亮选项 (-1=未选)
+
 // 演示模式状态
 static bool demo_mode_active = false;
 
@@ -219,6 +226,17 @@ static void espnow_recv_cb(const uint8_t *mac, const uint8_t *data, int len) {
             ai_last_ext_frame = millis();
             ai_state_changed = true;  // 由 update_screen_ai_status 应用
             Serial.printf("AI state received: emotion=%d text='%s'\n", frame->emotion, ai_custom_text);
+        }
+    }
+
+    // 决策请求帧 (PC→Dongle→K10)
+    else if (frame_type == FRAME_TYPE_DECISION_REQ && len == sizeof(decision_request_frame_t)) {
+        const decision_request_frame_t *req = (const decision_request_frame_t *)data;
+        if (espnow_crc8(data, sizeof(*req) - 1) == req->crc8) {
+            memcpy(&g_decision_req, req, sizeof(g_decision_req));
+            g_decision_pending = true;   // 主循环据此切到决策界面
+            Serial.printf("Decision req id=%u kind=%u opts=%u\n",
+                          req->decision_id, req->kind, req->opt_count);
         }
     }
 }
@@ -1718,15 +1736,15 @@ void loop() {
                     send_key(0x3B, "F2 (voice input)");
                     if (current_screen == 0) screen_dirty = true;
                 } else {
-                    // 长按: Esc 取消 (UX 重定义: 原 Enter 移到按键 B 短按)
-                    send_key(0x29, "Esc (cancel)");
+                    // 长按: Enter 确认 (UX 重定义: 翻页交给按键 B 短按, Enter 从 B 移到此处)
+                    send_key(0x28, "Enter (confirm)");
                 }
             }
         }
         prev_a = a;
     }
 
-    // --- 按键 B: 短按=切换界面, 长按=连续Backspace ---
+    // --- 按键 B: 短按=切换界面(翻页), 长按=连续Backspace ---
     static uint32_t lastBtnB = 0;
     static bool b_long_triggered = false;
     if (now - lastBtnB >= 10) {
@@ -1749,16 +1767,18 @@ void loop() {
             }
         } else if (!b && prev_b) {
             uint32_t duration = now - press_time_b;
-            if (duration < LONG_PRESS_MS) {
-                // 短按: Enter 确认 (UX 重定义: 界面切换已交给触摸左右滑动)
-                send_key(0x28, "Enter (confirm)");
+            if (!b_long_triggered && duration < LONG_PRESS_MS) {
+                // 短按: 切换到下一个界面 (触摸滑动翻页已移除, 翻页改由此键承担)
+                order_index = (order_index + 1) % 7;
+                Serial.printf("Key B short -> next screen %d\n", SCREEN_ORDER[order_index]);
+                switch_screen(SCREEN_ORDER[order_index]);
             }
             // 长按已在持续期间处理 (连续 Backspace)，释放时不再动作
         }
         prev_b = b;
     }
 
-    // --- 按键 BOOT (GPIO0): 短按=Esc退出, 长按=截图/特殊功能 ---
+    // --- 按键 BOOT (GPIO0): 短按=返回主界面(AI Status), 长按=跳转 TouchTest ---
     static uint32_t lastBtnBoot = 0;
     if (now - lastBtnBoot >= 10) {
         lastBtnBoot = now;
@@ -1789,53 +1809,8 @@ void loop() {
         prev_boot = boot;
     }
 
-    // --- 触摸手势: 左右滑动切换界面 ---
-    {
-        static int16_t swipe_start_x = -1;
-        static int16_t swipe_start_y = -1;
-        static bool swipe_in_progress = false;
-
-        uint16_t x, y;
-        bool is_pressed = touch.scan(&x, &y);
-
-        // 详情卡片打开时，触摸交给 LVGL(点击遮罩关闭)，不做滑动切屏
-        if (detail_card_open()) {
-            swipe_in_progress = false;
-            swipe_start_x = -1;
-            swipe_start_y = -1;
-        } else if (is_pressed && !swipe_in_progress) {
-            // 开始触摸，记录起点
-            swipe_start_x = x;
-            swipe_start_y = y;
-            swipe_in_progress = true;
-        } else if (!is_pressed && swipe_in_progress) {
-            // 触摸结束，判断是否为滑动手势
-            swipe_in_progress = false;
-
-            if (swipe_start_x >= 0) {
-                int16_t dx = x - swipe_start_x;
-                int16_t dy = y - swipe_start_y;
-
-                // 水平滑动判定: |dx| > 60 && |dy| < 40
-                if (abs(dx) > 60 && abs(dy) < 40) {
-                    if (dx > 0) {
-                        // 右滑: 上一个界面
-                        order_index = (order_index == 0) ? 6 : (order_index - 1);
-                        Serial.printf("Swipe RIGHT -> screen %d\n", SCREEN_ORDER[order_index]);
-                    } else {
-                        // 左滑: 下一个界面
-                        order_index = (order_index + 1) % 7;
-                        Serial.printf("Swipe LEFT -> screen %d\n", SCREEN_ORDER[order_index]);
-                    }
-                    last_swipe_ms = millis();  // 标记刚滑动过, 供屏幕级点击回调(AI情绪)过滤
-                    switch_screen(SCREEN_ORDER[order_index]);
-                }
-
-                swipe_start_x = -1;
-                swipe_start_y = -1;
-            }
-        }
-    }
+    // --- 触摸滑动翻页已移除: 翻页仅由按键 B(K1) 短按完成 ---
+    // (触摸仍用于 LVGL 屏幕内点击交互, 由 lv_port indev 驱动独立处理)
 
     // --- 音频采集 + ESP-NOW 发送 ---
     if (streaming && espnow_ready) {
