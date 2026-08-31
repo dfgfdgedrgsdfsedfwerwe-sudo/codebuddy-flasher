@@ -107,6 +107,11 @@ UART0 与日志分流后仍需分帧 (防噪声/重同步):
 
 ### 6.1 PC 端 cc_bridge (新增, tools/cc_bridge/)
 - Python, 依赖 `claude-agent-sdk`, `pyserial`
+- **运行时注入系统提示 (不改 CLAUDE.md 文件)**: 通过 SDK 的 system_prompt append 机制
+  (`{"type":"preset","preset":"claude_code","append":"..."}`) 追加一句:
+  "遇到有多个合理方案的决策点时, 优先用 AskUserQuestion 让用户选, 而不是直接选定。"
+  这样**仅当经 cc_bridge 启动时才带此提示**, 直接 `claude` 不受影响。目的: 提高 K10 上
+  多选题 (AskUserQuestion) 的出现频率。(SDK 确切参数名实现时核实。)
 - `async def can_use_tool(tool_name, input_data, context)`:
   - 工具权限类: title = tool_name + 关键参数摘要; opts = ["允许","拒绝","总是允许"]
   - AskUserQuestion 类: 从 input_data 取 Claude 的问题与选项原样填入
