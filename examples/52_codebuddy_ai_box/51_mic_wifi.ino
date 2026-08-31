@@ -166,6 +166,9 @@ static void update_screen_inspo();
 static void update_screen_profile();
 static void update_screen_ai_status();
 static void switch_screen(uint8_t screen_num);
+static void create_screen_decision();
+static void update_screen_decision();
+static void send_decision_reply(uint16_t id, uint8_t index);
 static void show_detail_card(const char *title, const char *body);
 static void close_detail_card();
 static bool detail_card_open();
@@ -1234,6 +1237,21 @@ static lv_obj_t *touch_coord_label = NULL;
 static lv_obj_t *touch_status_label = NULL;
 static lv_obj_t *touch_dot = NULL;
 
+// ========================== 界面 7: 决策界面 ==========================
+static lv_obj_t *screen_decision = NULL;
+static lv_obj_t *dec_title_label = NULL;
+static lv_obj_t *dec_opt_btn[DECISION_MAX_OPTS] = {NULL};
+static lv_obj_t *dec_opt_label[DECISION_MAX_OPTS] = {NULL};
+static lv_obj_t *dec_confirm_btn = NULL;
+// 触摸命中矩形 (屏幕坐标 240x320): 选项纵向排列, 确认键在底部
+#define DEC_OPT_X       10
+#define DEC_OPT_W       220
+#define DEC_OPT_H       40
+#define DEC_OPT_Y0      70
+#define DEC_OPT_GAP     48
+#define DEC_CONFIRM_Y   280
+#define DEC_CONFIRM_H   35
+
 static void create_screen_touch_test() {
     screen_touch_test = lv_obj_create(NULL);
     lv_obj_set_style_bg_color(screen_touch_test, lv_color_hex(0x000000), 0);
@@ -1292,6 +1310,60 @@ static void update_screen_touch_test() {
         lv_label_set_text(touch_status_label, "Released");
         lv_obj_set_style_text_color(touch_status_label, lv_color_hex(0x888888), 0);
         lv_obj_add_flag(touch_dot, LV_OBJ_FLAG_HIDDEN);
+    }
+}
+
+// ========================== 界面 7: 决策界面 (创建 + 刷新) ==========================
+static void create_screen_decision() {
+    screen_decision = lv_obj_create(NULL);
+    lv_obj_set_style_bg_color(screen_decision, lv_color_hex(0x101828), 0);
+
+    dec_title_label = lv_label_create(screen_decision);
+    lv_label_set_long_mode(dec_title_label, LV_LABEL_LONG_WRAP);
+    lv_obj_set_width(dec_title_label, 220);
+    lv_obj_set_style_text_color(dec_title_label, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_set_style_text_font(dec_title_label, &lv_font_montserrat_18, 0);
+    lv_obj_align(dec_title_label, LV_ALIGN_TOP_MID, 0, 15);
+    lv_label_set_text(dec_title_label, "");
+
+    for (int i = 0; i < DECISION_MAX_OPTS; i++) {
+        dec_opt_btn[i] = lv_obj_create(screen_decision);
+        lv_obj_set_size(dec_opt_btn[i], DEC_OPT_W, DEC_OPT_H);
+        lv_obj_set_pos(dec_opt_btn[i], DEC_OPT_X, DEC_OPT_Y0 + i * DEC_OPT_GAP);
+        lv_obj_set_style_radius(dec_opt_btn[i], 8, 0);
+        lv_obj_set_style_bg_color(dec_opt_btn[i], lv_color_hex(0x2A3441), 0);
+        lv_obj_clear_flag(dec_opt_btn[i], LV_OBJ_FLAG_SCROLLABLE);
+        dec_opt_label[i] = lv_label_create(dec_opt_btn[i]);
+        lv_obj_set_style_text_color(dec_opt_label[i], lv_color_hex(0xE5E7EB), 0);
+        lv_obj_center(dec_opt_label[i]);
+        lv_label_set_text(dec_opt_label[i], "");
+    }
+
+    dec_confirm_btn = lv_obj_create(screen_decision);
+    lv_obj_set_size(dec_confirm_btn, DEC_OPT_W, DEC_CONFIRM_H);
+    lv_obj_set_pos(dec_confirm_btn, DEC_OPT_X, DEC_CONFIRM_Y);
+    lv_obj_set_style_radius(dec_confirm_btn, 8, 0);
+    lv_obj_set_style_bg_color(dec_confirm_btn, lv_color_hex(0x2563EB), 0);
+    lv_obj_clear_flag(dec_confirm_btn, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_t *cl = lv_label_create(dec_confirm_btn);
+    lv_label_set_text(cl, "confirm");
+    lv_obj_set_style_text_color(cl, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_center(cl);
+}
+
+static void update_screen_decision() {
+    if (!dec_title_label) return;
+    lv_label_set_text(dec_title_label, g_decision_req.title);
+    for (int i = 0; i < DECISION_MAX_OPTS; i++) {
+        if (!dec_opt_btn[i]) continue;
+        if (i < g_decision_req.opt_count) {
+            lv_obj_clear_flag(dec_opt_btn[i], LV_OBJ_FLAG_HIDDEN);
+            lv_label_set_text(dec_opt_label[i], g_decision_req.opts[i]);
+            uint32_t bg = (i == g_decision_sel) ? 0x2563EB : 0x2A3441;  // 选中变蓝
+            lv_obj_set_style_bg_color(dec_opt_btn[i], lv_color_hex(bg), 0);
+        } else {
+            lv_obj_add_flag(dec_opt_btn[i], LV_OBJ_FLAG_HIDDEN);
+        }
     }
 }
 
@@ -1355,7 +1427,7 @@ static void show_detail_card(const char *title, const char *body) {
 
 static void switch_screen(uint8_t screen_num) {
     uint8_t old_screen = current_screen;
-    current_screen = screen_num % 7;  // 现在是 7 个界面 (0-5 + 6触摸测试)
+    current_screen = screen_num % 8;  // 8 个界面 (0-5 + 6触摸测试 + 7决策)
     screen_dirty = true;
 
     // 加锁保护 LVGL 操作
@@ -1380,6 +1452,10 @@ static void switch_screen(uint8_t screen_num) {
     } else if (current_screen == 6) {
         lv_scr_load(screen_touch_test);
         update_screen_touch_test();
+    } else if (current_screen == 7) {
+        if (!screen_decision) create_screen_decision();
+        update_screen_decision();
+        lv_scr_load(screen_decision);
     } else {
         lv_scr_load(screen_ai_status);
         update_screen_ai_status();
