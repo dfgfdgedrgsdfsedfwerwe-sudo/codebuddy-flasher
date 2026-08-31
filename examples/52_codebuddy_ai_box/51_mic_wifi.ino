@@ -1582,6 +1582,18 @@ static void send_key(uint8_t keycode, const char *name) {
     Serial.printf("Key sent: %s (0x%02X)\n", name, keycode);
 }
 
+// 组 0x0B 决策回执帧, 经 ESP-NOW 回传 Dongle
+static void send_decision_reply(uint16_t id, uint8_t index) {
+    decision_reply_frame_t rep;
+    memset(&rep, 0, sizeof(rep));
+    rep.frame_type = FRAME_TYPE_DECISION_REPLY;
+    rep.decision_id = id;
+    rep.chosen_index = index;
+    rep.crc8 = espnow_crc8((uint8_t*)&rep, sizeof(rep) - 1);
+    esp_now_send(dongle_mac, (uint8_t*)&rep, sizeof(rep));
+    Serial.printf("Decision reply id=%u index=%u sent\n", id, index);
+}
+
 void setup() {
     Serial.begin(115200);
     delay(1000);
