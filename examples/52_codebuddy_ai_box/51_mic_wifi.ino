@@ -92,6 +92,16 @@ typedef enum {
 
 static workflow_state_t g_workflow_state = WORKFLOW_STATE_HOME;
 
+// 提示音类型 (参考 FoloToy 按住说话交互)
+typedef enum {
+    TONE_START = 0,       // 开始录音 (440Hz 80ms, 滴)
+    TONE_SEND,            // 发送完成 (880Hz 60ms, 哔)
+    TONE_APPROVAL,        // 审批提醒 (660Hz 100ms×2, 嘟嘟)
+    TONE_DONE,            // 任务完成 (523Hz 150ms, 低哔)
+    TONE_REJECT,          // 拒绝/取消 (220Hz 200ms, 低咚)
+    TONE_ERROR            // 错误 (330Hz 80ms×3, 哒哒哒)
+} tone_type_t;
+
 // Agent 状态数据 (从 PC 接收 0x0C)
 static agent_state_t    g_agent_state = AGENT_STATE_READY;
 static char             g_agent_task_msg[AGENT_TASK_MSG_LEN] = {0};  // "Reading config.py"
@@ -205,6 +215,7 @@ static void send_decision_reply(uint16_t id, uint8_t index);
 static void send_approval_reply(uint16_t task_id, uint8_t action);
 static void create_screen_approval();
 static void update_screen_approval();
+static void play_tone(tone_type_t type);
 static void show_detail_card(const char *title, const char *body);
 static void close_detail_card();
 static bool detail_card_open();
@@ -1814,6 +1825,76 @@ static void send_approval_reply(uint16_t task_id, uint8_t action) {
     Serial.printf("Approval reply task=%u action=%s sent\n", task_id, action_name);
 }
 
+// ======================= 提示音 (合成正弦波, I2S 输出) =======================
+// 生成单个正弦波音调并通过 I2S 输出 (阻塞式, 时长 ms 级, 仅短提示音)
+static void play_beep(uint16_t freq_hz, uint16_t duration_ms) {
+    const int sample_rate = SAMPLE_RATE;   // 16000
+    const int total_samples = (sample_rate * duration_ms) / 1000;
+    const int chunk = 128;                 // 每次写 128 样本 (双声道 256 int16)
+    static int16_t tone_buf[256];          // 128 帧 × 2 声道
+
+    float phase = 0.0f;
+    float phase_inc = 2.0f * 3.14159265f * freq_hz / sample_rate;
+    int written = 0;
+
+    while (written < total_samples) {
+        int n = (total_samples - written > chunk) ? chunk : (total_samples - written);
+        for (int i = 0; i < n; i++) {
+            // 渐弱包络避免爆音 (末尾 20% 线性衰减)
+            float env = 1.0f;
+            int pos = written + i;
+            int fade_start = (total_samples * 4) / 5;
+            if (pos > fade_start) {
+                env = (float)(total_samples - pos) / (total_samples - fade_start);
+            }
+            int16_t s = (int16_t)(sinf(phase) * 8000 * env);  // 振幅 8000 (约 1/4 满幅)
+            tone_buf[2 * i]     = s;   // 左
+            tone_buf[2 * i + 1] = s;   // 右
+            phase += phase_inc;
+            if (phase > 2.0f * 3.14159265f) phase -= 2.0f * 3.14159265f;
+        }
+        size_t bytes_written = 0;
+        i2s_write(I2S_NUM_0, tone_buf, n * 4, &bytes_written, portMAX_DELAY);
+        written += n;
+    }
+}
+
+// 播放提示音 (6 种, 参考 FoloToy 音效设计)
+static void play_tone(tone_type_t type) {
+    // 确保喇叭功放使能
+    es8311.speakerEnable(true);
+
+    switch (type) {
+        case TONE_START:    // 开始录音: 440Hz 80ms
+            play_beep(440, 80);
+            break;
+        case TONE_SEND:     // 发送完成: 880Hz 60ms
+            play_beep(880, 60);
+            break;
+        case TONE_APPROVAL: // 审批提醒: 660Hz 嘟嘟 (两声)
+            play_beep(660, 100);
+            delay(50);
+            play_beep(660, 100);
+            break;
+        case TONE_DONE:     // 完成: 523Hz→784Hz 上升
+            play_beep(523, 100);
+            play_beep(784, 120);
+            break;
+        case TONE_REJECT:   // 拒绝: 220Hz 200ms 低咚
+            play_beep(220, 200);
+            break;
+        case TONE_ERROR:    // 错误: 330Hz 哒哒哒 (三声)
+            play_beep(330, 60);
+            delay(40);
+            play_beep(330, 60);
+            delay(40);
+            play_beep(330, 60);
+            break;
+    }
+    // 播放后清空 DMA 残留, 避免影响录音
+    i2s_zero_dma_buffer(I2S_NUM_0);
+}
+
 void setup() {
     Serial.begin(115200);
     delay(1000);
@@ -1921,6 +2002,7 @@ void loop() {
         g_approval_pending = false;
         g_approval_active = true;
         g_workflow_state = WORKFLOW_STATE_APPROVAL;  // 进入审批态
+        play_tone(TONE_APPROVAL);  // 嘟嘟提示审批请求到达
         switch_screen(8);  // Screen 8 = 审批界面
     }
 
@@ -1942,6 +2024,7 @@ void loop() {
                 if (tx >= 10 && tx <= 10 + APPR_BTN_W &&
                     ty >= APPR_BTN_Y && ty <= APPR_BTN_Y + APPR_BTN_H) {
                     send_approval_reply(g_approval_task_id, APPROVAL_ACTION_APPROVE);
+                    play_tone(TONE_DONE);  // 批准音
                     g_approval_active = false;
                     g_workflow_state = WORKFLOW_STATE_AGENT_RUNNING;  // 批准后 Agent 继续
                     switch_screen(SCREEN_ORDER[order_index]);
@@ -1951,6 +2034,7 @@ void loop() {
                          tx <= 10 + (APPR_BTN_W + APPR_BTN_GAP) * 2 &&
                          ty >= APPR_BTN_Y && ty <= APPR_BTN_Y + APPR_BTN_H) {
                     send_approval_reply(g_approval_task_id, APPROVAL_ACTION_REJECT);
+                    play_tone(TONE_REJECT);  // 拒绝音
                     g_approval_active = false;
                     g_workflow_state = WORKFLOW_STATE_READY;  // 拒绝回 READY
                     switch_screen(SCREEN_ORDER[order_index]);
@@ -2150,8 +2234,10 @@ void loop() {
                     if (streaming) {
                         i2s_zero_dma_buffer(I2S_NUM_0);
                         audio_seq_num = 0;
+                        play_tone(TONE_START);  // 滴声提示录音开始
                         Serial.println("Streaming STARTED");
                     } else {
+                        play_tone(TONE_SEND);   // 尖锐滴声提示发送完成
                         Serial.printf("Streaming STOPPED. TX=%u FAIL=%u\n", packetCount, sendFailCount);
                     }
                     send_key(0x3B, "F2 (voice input)");
