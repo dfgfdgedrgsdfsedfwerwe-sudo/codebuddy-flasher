@@ -13,15 +13,15 @@
  *   界面 4: User Profile (用户信息)
  *   界面 5: AI Status (AI 工作状态动画)
  *
- * 按键交互 (ATK BOX, UX 重定义 2026-08-28):
- * - 按键 A (KEY1): 短按=切换音频流+发送F2, 长按=发送Esc(取消)
- * - 按键 B (KEY0): 短按=发送Enter(确认), 长按=连续发送Backspace
+ * 按键交互 (ATK BOX, UX 定稿 2026-08-31):
+ * - 按键 A (KEY1): 短按=切换音频流+发送F2, 长按=发送Enter(确认)
+ * - 按键 B (KEY0): 短按=切换界面(翻页), 长按=连续发送Backspace
  * - 按键 C (BOOT): 短按=返回主界面(AI Status), 长按=跳转触摸测试界面
  * - RST: 硬件复位 (不可作功能键)
  * - A+B 同时 2 秒: 触发演示模式
- * - 触摸: 左右滑动切换界面 + 界面内单击/长按交互
+ * - 触摸: 仅界面内单击/长按交互 (滑动翻页已于 2026-08-31 移除, 翻页改由按键 B 短按)
  *
- * @date 2026-08-28 (ATK BOX 交互重定义版)
+ * @date 2026-08-31 (ATK BOX 交互定稿版: 翻页归 B 短按, Enter 归 A 长按, 移除触摸滑动翻页)
  */
 
 #include <Arduino.h>
@@ -77,6 +77,36 @@ typedef enum {
 static ai_state_t ai_state = AI_STATE_THINKING;
 static const uint32_t AI_STATE_DURATION_MS = 4000;  // 每个状态持续 4 秒
 
+// ============================================================
+// 全局工作流状态机 (Agent 工作流可视化)
+// ============================================================
+typedef enum {
+    WORKFLOW_STATE_HOME         = 0,  // 主界面 (初始态)
+    WORKFLOW_STATE_READY        = 1,  // 就绪待命
+    WORKFLOW_STATE_LISTENING    = 2,  // 正在录音
+    WORKFLOW_STATE_TRANSCRIBING = 3,  // 转写中
+    WORKFLOW_STATE_AGENT_RUNNING = 4, // Agent 执行中 (THINKING/RUNNING)
+    WORKFLOW_STATE_APPROVAL     = 5,  // 审批等待
+    WORKFLOW_STATE_DONE         = 6,  // 完成
+} workflow_state_t;
+
+static workflow_state_t g_workflow_state = WORKFLOW_STATE_HOME;
+
+// Agent 状态数据 (从 PC 接收 0x0C)
+static agent_state_t    g_agent_state = AGENT_STATE_READY;
+static char             g_agent_task_msg[AGENT_TASK_MSG_LEN] = {0};  // "Reading config.py"
+static bool             g_agent_status_dirty = false;
+
+// Agent 审批数据 (从 PC 接收 0x0D)
+static bool             g_approval_pending = false;
+static uint16_t         g_approval_task_id = 0;
+static approval_risk_t  g_approval_risk = APPROVAL_RISK_LOW;
+static char             g_approval_title[APPROVAL_TITLE_LEN] = {0};
+static char             g_approval_target[APPROVAL_TARGET_LEN] = {0};
+static char             g_approval_diff[APPROVAL_DIFF_LEN] = {0};
+static int8_t           g_approval_action = -1;  // -1=未选, 0/1/2=approve/reject/view
+static uint32_t         g_approval_deadline_ms = 0;
+
 // AI 情绪外部覆盖 (收到上位机 AI_STATE 帧后停用本地自动循环)
 static bool     ai_external_override = false;   // true=由上位机驱动, 停止自动循环
 static uint32_t ai_last_ext_frame   = 0;        // 上次收到外部帧的时间
@@ -106,6 +136,9 @@ static volatile bool g_decision_pending = false;  // 收到新请求待切界面
 static volatile bool g_decision_active  = false;  // 决策界面正显示中
 static uint32_t g_decision_deadline_ms = 0;       // 超时时刻
 static int g_decision_sel = -1;                   // 当前高亮选项 (-1=未选)
+
+// 审批界面激活标志 (Agent 物理审批)
+static volatile bool g_approval_active = false;   // 审批界面正显示中
 
 // 演示模式状态
 static bool demo_mode_active = false;
@@ -169,6 +202,9 @@ static void switch_screen(uint8_t screen_num);
 static void create_screen_decision();
 static void update_screen_decision();
 static void send_decision_reply(uint16_t id, uint8_t index);
+static void send_approval_reply(uint16_t task_id, uint8_t action);
+static void create_screen_approval();
+static void update_screen_approval();
 static void show_detail_card(const char *title, const char *body);
 static void close_detail_card();
 static bool detail_card_open();
@@ -240,6 +276,56 @@ static void espnow_recv_cb(const uint8_t *mac, const uint8_t *data, int len) {
             g_decision_pending = true;   // 主循环据此切到决策界面
             Serial.printf("Decision req id=%u kind=%u opts=%u\n",
                           req->decision_id, req->kind, req->opt_count);
+        }
+    }
+
+    // Agent Status 帧 (PC→Dongle→BOX, 0x0C)
+    else if (frame_type == FRAME_TYPE_AGENT_STATUS && len == sizeof(agent_status_frame_t)) {
+        const agent_status_frame_t *frame = (const agent_status_frame_t *)data;
+        if (espnow_crc8(data, sizeof(*frame) - 1) == frame->crc8) {
+            g_agent_state = (agent_state_t)frame->state;
+            memcpy(g_agent_task_msg, frame->task_message, sizeof(g_agent_task_msg) - 1);
+            g_agent_task_msg[sizeof(g_agent_task_msg) - 1] = '\0';
+            g_agent_status_dirty = true;
+
+            // 状态机转换
+            if (g_agent_state == AGENT_STATE_THINKING || g_agent_state == AGENT_STATE_RUNNING) {
+                g_workflow_state = WORKFLOW_STATE_AGENT_RUNNING;
+            } else if (g_agent_state == AGENT_STATE_DONE) {
+                g_workflow_state = WORKFLOW_STATE_READY;
+            } else if (g_agent_state == AGENT_STATE_ERROR) {
+                g_workflow_state = WORKFLOW_STATE_READY;  // 错误也回 READY
+            }
+
+            Serial.printf("Agent status: state=%d msg='%s'\n", frame->state, g_agent_task_msg);
+        }
+    }
+
+    // Agent Approval Request 帧 (PC→Dongle→BOX, 0x0D)
+    else if (frame_type == FRAME_TYPE_AGENT_APPROVAL_REQ && len == sizeof(agent_approval_request_frame_t)) {
+        const agent_approval_request_frame_t *req = (const agent_approval_request_frame_t *)data;
+        if (espnow_crc8(data, sizeof(*req) - 1) == req->crc8) {
+            g_approval_task_id = req->task_id;
+            g_approval_risk = (approval_risk_t)req->risk_level;
+            memcpy(g_approval_title, req->title, sizeof(g_approval_title) - 1);
+            g_approval_title[sizeof(g_approval_title) - 1] = '\0';
+            memcpy(g_approval_target, req->target, sizeof(g_approval_target) - 1);
+            g_approval_target[sizeof(g_approval_target) - 1] = '\0';
+            memcpy(g_approval_diff, req->diff_summary, sizeof(g_approval_diff) - 1);
+            g_approval_diff[sizeof(g_approval_diff) - 1] = '\0';
+
+            g_approval_pending = true;
+            g_approval_action = -1;
+            g_approval_deadline_ms = millis() + 60000;  // 60s 超时
+
+            // 打断录音 (如果正在录音): 审批必须优先, 避免音频流泄漏
+            if (streaming) {
+                streaming = false;
+                Serial.println("Approval interrupts audio streaming");
+            }
+
+            Serial.printf("Approval req: id=%u risk=%u title='%s'\n",
+                          req->task_id, req->risk_level, g_approval_title);
         }
     }
 }
@@ -1252,6 +1338,21 @@ static lv_obj_t *dec_confirm_btn = NULL;
 #define DEC_CONFIRM_Y   280
 #define DEC_CONFIRM_H   35
 
+// ========================== 界面 8: 审批界面 ==========================
+static lv_obj_t *screen_approval = NULL;
+static lv_obj_t *appr_risk_badge = NULL;
+static lv_obj_t *appr_title_label = NULL;
+static lv_obj_t *appr_target_label = NULL;
+static lv_obj_t *appr_diff_label = NULL;
+static lv_obj_t *appr_btn_approve = NULL;
+static lv_obj_t *appr_btn_reject = NULL;
+static lv_obj_t *appr_btn_diff = NULL;
+
+#define APPR_BTN_W      70
+#define APPR_BTN_H      40
+#define APPR_BTN_Y      270
+#define APPR_BTN_GAP    10
+
 static void create_screen_touch_test() {
     screen_touch_test = lv_obj_create(NULL);
     lv_obj_set_style_bg_color(screen_touch_test, lv_color_hex(0x000000), 0);
@@ -1367,6 +1468,104 @@ static void update_screen_decision() {
     }
 }
 
+// ========================== 界面 8: 审批界面 (创建 + 刷新) ==========================
+static void create_screen_approval() {
+    screen_approval = lv_obj_create(NULL);
+    lv_obj_set_style_bg_color(screen_approval, lv_color_hex(0x0F172A), 0);
+
+    // 风险等级标签 (顶部)
+    appr_risk_badge = lv_label_create(screen_approval);
+    lv_obj_set_style_bg_opa(appr_risk_badge, LV_OPA_COVER, 0);
+    lv_obj_set_style_bg_color(appr_risk_badge, lv_color_hex(0xFBBF24), 0);  // 默认黄色
+    lv_obj_set_style_text_color(appr_risk_badge, lv_color_hex(0x000000), 0);
+    lv_obj_set_style_pad_hor(appr_risk_badge, 8, 0);
+    lv_obj_set_style_pad_ver(appr_risk_badge, 4, 0);
+    lv_obj_set_style_radius(appr_risk_badge, 4, 0);
+    lv_obj_set_style_text_font(appr_risk_badge, &lv_font_montserrat_14, 0);
+    lv_obj_align(appr_risk_badge, LV_ALIGN_TOP_LEFT, 10, 10);
+    lv_label_set_text(appr_risk_badge, "MEDIUM");
+
+    // 标题
+    appr_title_label = lv_label_create(screen_approval);
+    lv_label_set_long_mode(appr_title_label, LV_LABEL_LONG_WRAP);
+    lv_obj_set_width(appr_title_label, 220);
+    lv_obj_set_style_text_color(appr_title_label, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_set_style_text_font(appr_title_label, &lv_font_montserrat_18, 0);
+    lv_obj_align(appr_title_label, LV_ALIGN_TOP_MID, 0, 40);
+    lv_label_set_text(appr_title_label, "");
+
+    // 目标 (target)
+    appr_target_label = lv_label_create(screen_approval);
+    lv_label_set_long_mode(appr_target_label, LV_LABEL_LONG_WRAP);
+    lv_obj_set_width(appr_target_label, 220);
+    lv_obj_set_style_text_color(appr_target_label, lv_color_hex(0x94A3B8), 0);
+    lv_obj_set_style_text_font(appr_target_label, &lv_font_montserrat_14, 0);
+    lv_obj_align(appr_target_label, LV_ALIGN_TOP_LEFT, 10, 90);
+    lv_label_set_text(appr_target_label, "");
+
+    // Diff 摘要
+    appr_diff_label = lv_label_create(screen_approval);
+    lv_label_set_long_mode(appr_diff_label, LV_LABEL_LONG_WRAP);
+    lv_obj_set_width(appr_diff_label, 220);
+    lv_obj_set_style_text_color(appr_diff_label, lv_color_hex(0x64748B), 0);
+    lv_obj_set_style_text_font(appr_diff_label, &lv_font_montserrat_12, 0);
+    lv_obj_align(appr_diff_label, LV_ALIGN_TOP_LEFT, 10, 130);
+    lv_label_set_text(appr_diff_label, "");
+
+    // 三个按钮: APPROVE (绿) / REJECT (红) / DIFF (灰)
+    appr_btn_approve = lv_obj_create(screen_approval);
+    lv_obj_set_size(appr_btn_approve, APPR_BTN_W, APPR_BTN_H);
+    lv_obj_set_pos(appr_btn_approve, 10, APPR_BTN_Y);
+    lv_obj_set_style_radius(appr_btn_approve, 8, 0);
+    lv_obj_set_style_bg_color(appr_btn_approve, lv_color_hex(0x10B981), 0);
+    lv_obj_clear_flag(appr_btn_approve, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_t *la = lv_label_create(appr_btn_approve);
+    lv_label_set_text(la, "OK");
+    lv_obj_set_style_text_color(la, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_center(la);
+
+    appr_btn_reject = lv_obj_create(screen_approval);
+    lv_obj_set_size(appr_btn_reject, APPR_BTN_W, APPR_BTN_H);
+    lv_obj_set_pos(appr_btn_reject, 10 + APPR_BTN_W + APPR_BTN_GAP, APPR_BTN_Y);
+    lv_obj_set_style_radius(appr_btn_reject, 8, 0);
+    lv_obj_set_style_bg_color(appr_btn_reject, lv_color_hex(0xEF4444), 0);
+    lv_obj_clear_flag(appr_btn_reject, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_t *lr = lv_label_create(appr_btn_reject);
+    lv_label_set_text(lr, "UP");
+    lv_obj_set_style_text_color(lr, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_center(lr);
+
+    appr_btn_diff = lv_obj_create(screen_approval);
+    lv_obj_set_size(appr_btn_diff, APPR_BTN_W, APPR_BTN_H);
+    lv_obj_set_pos(appr_btn_diff, 10 + (APPR_BTN_W + APPR_BTN_GAP) * 2, APPR_BTN_Y);
+    lv_obj_set_style_radius(appr_btn_diff, 8, 0);
+    lv_obj_set_style_bg_color(appr_btn_diff, lv_color_hex(0x475569), 0);
+    lv_obj_clear_flag(appr_btn_diff, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_t *ld = lv_label_create(appr_btn_diff);
+    lv_label_set_text(ld, "DOWN");
+    lv_obj_set_style_text_color(ld, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_center(ld);
+}
+
+static void update_screen_approval() {
+    if (!appr_title_label) return;
+
+    // 风险等级标签颜色
+    uint32_t badge_color = 0x94A3B8;  // 灰
+    const char *risk_text = "LOW";
+    if (g_approval_risk == APPROVAL_RISK_MEDIUM) {
+        badge_color = 0xFBBF24; risk_text = "MEDIUM";  // 黄
+    } else if (g_approval_risk == APPROVAL_RISK_HIGH) {
+        badge_color = 0xEF4444; risk_text = "HIGH";    // 红
+    }
+    lv_obj_set_style_bg_color(appr_risk_badge, lv_color_hex(badge_color), 0);
+    lv_label_set_text(appr_risk_badge, risk_text);
+
+    lv_label_set_text(appr_title_label, g_approval_title);
+    lv_label_set_text_fmt(appr_target_label, "Target: %s", g_approval_target);
+    lv_label_set_text(appr_diff_label, g_approval_diff);
+}
+
 // 切换界面 (操作 LVGL 前必须持有 xGuiSemaphore, 避免与动画刷新/lv_task_handler 竞态卡死)
 // ======================= 通用详情卡片 (界面 1/2 复用) =======================
 static bool detail_card_open() { return detail_card_bg != NULL; }
@@ -1427,7 +1626,7 @@ static void show_detail_card(const char *title, const char *body) {
 
 static void switch_screen(uint8_t screen_num) {
     uint8_t old_screen = current_screen;
-    current_screen = screen_num % 8;  // 8 个界面 (0-5 + 6触摸测试 + 7决策)
+    current_screen = screen_num % 9;  // 9 个界面 (0-5 + 6触摸测试 + 7决策 + 8审批)
     screen_dirty = true;
 
     // 加锁保护 LVGL 操作
@@ -1456,13 +1655,17 @@ static void switch_screen(uint8_t screen_num) {
         if (!screen_decision) create_screen_decision();
         update_screen_decision();
         lv_scr_load(screen_decision);
+    } else if (current_screen == 8) {
+        if (!screen_approval) create_screen_approval();
+        update_screen_approval();
+        lv_scr_load(screen_approval);
     } else {
         lv_scr_load(screen_ai_status);
         update_screen_ai_status();
     }
 
     if (locked) xSemaphoreGive(xGuiSemaphore);
-    Serial.printf("Switched: %d -> %d (screens: 0=Status, 1=Token, 2=Project, 3=Inspo, 4=Profile, 5=AI, 6=TouchTest)\n",
+    Serial.printf("Switched: %d -> %d (screens: 0=Status, 1=Token, 2=Project, 3=Inspo, 4=Profile, 5=AI, 6=TouchTest, 7=Decision, 8=Approval)\n",
                   old_screen, current_screen);
 }
 
@@ -1594,6 +1797,23 @@ static void send_decision_reply(uint16_t id, uint8_t index) {
     Serial.printf("Decision reply id=%u index=%u sent\n", id, index);
 }
 
+// 发送 Agent 审批回执 (0x0E)
+static void send_approval_reply(uint16_t task_id, uint8_t action) {
+    agent_approval_reply_frame_t rep;
+    memset(&rep, 0, sizeof(rep));
+    rep.frame_type = FRAME_TYPE_AGENT_APPROVAL_REPLY;
+    rep.task_id = task_id;
+    rep.action = action;
+    rep.crc8 = espnow_crc8((uint8_t*)&rep, sizeof(rep) - 1);
+    esp_now_send(dongle_mac, (uint8_t*)&rep, sizeof(rep));
+
+    const char *action_name =
+        (action == APPROVAL_ACTION_APPROVE) ? "APPROVE" :
+        (action == APPROVAL_ACTION_REJECT) ? "REJECT" :
+        (action == APPROVAL_ACTION_VIEW_DIFF) ? "VIEW_DIFF" : "TIMEOUT";
+    Serial.printf("Approval reply task=%u action=%s sent\n", task_id, action_name);
+}
+
 void setup() {
     Serial.begin(115200);
     delay(1000);
@@ -1692,8 +1912,66 @@ void loop() {
         g_decision_pending = false;
         g_decision_active = true;
         g_decision_sel = -1;
-        g_decision_deadline_ms = millis() + 15000;   // 15s 超时
+        g_decision_deadline_ms = millis() + 60000;   // 60s 超时（与 PC 端状态推送间隔一致）
         switch_screen(7);
+    }
+
+    // --- 审批界面激活检查 ---
+    if (g_approval_pending) {
+        g_approval_pending = false;
+        g_approval_active = true;
+        g_workflow_state = WORKFLOW_STATE_APPROVAL;  // 进入审批态
+        switch_screen(8);  // Screen 8 = 审批界面
+    }
+
+    // --- 审批界面激活: 三键交互 OK/UP/DOWN, 60s 超时 ---
+    if (g_approval_active) {
+        // 超时: 发 0xFF (TIMEOUT) 回执, 退出审批界面
+        if ((int32_t)(millis() - g_approval_deadline_ms) >= 0) {
+            send_approval_reply(g_approval_task_id, APPROVAL_ACTION_TIMEOUT);
+            g_approval_active = false;
+            g_workflow_state = WORKFLOW_STATE_READY;
+            switch_screen(SCREEN_ORDER[order_index]);   // 回到轮换界面
+        } else {
+            uint16_t tx, ty;
+            static uint32_t last_appr_touch_ms = 0;
+            if (touch.scan(&tx, &ty) && (millis() - last_appr_touch_ms > 250)) {
+                last_appr_touch_ms = millis();
+
+                // 命中 OK (APPROVE)
+                if (tx >= 10 && tx <= 10 + APPR_BTN_W &&
+                    ty >= APPR_BTN_Y && ty <= APPR_BTN_Y + APPR_BTN_H) {
+                    send_approval_reply(g_approval_task_id, APPROVAL_ACTION_APPROVE);
+                    g_approval_active = false;
+                    g_workflow_state = WORKFLOW_STATE_AGENT_RUNNING;  // 批准后 Agent 继续
+                    switch_screen(SCREEN_ORDER[order_index]);
+                }
+                // 命中 UP (REJECT)
+                else if (tx >= 10 + APPR_BTN_W + APPR_BTN_GAP &&
+                         tx <= 10 + (APPR_BTN_W + APPR_BTN_GAP) * 2 &&
+                         ty >= APPR_BTN_Y && ty <= APPR_BTN_Y + APPR_BTN_H) {
+                    send_approval_reply(g_approval_task_id, APPROVAL_ACTION_REJECT);
+                    g_approval_active = false;
+                    g_workflow_state = WORKFLOW_STATE_READY;  // 拒绝回 READY
+                    switch_screen(SCREEN_ORDER[order_index]);
+                }
+                // 命中 DOWN (VIEW_DIFF)
+                else if (tx >= 10 + (APPR_BTN_W + APPR_BTN_GAP) * 2 &&
+                         tx <= 10 + (APPR_BTN_W + APPR_BTN_GAP) * 3 &&
+                         ty >= APPR_BTN_Y && ty <= APPR_BTN_Y + APPR_BTN_H) {
+                    send_approval_reply(g_approval_task_id, APPROVAL_ACTION_VIEW_DIFF);
+                    // 不退出审批界面，等待 PC 再次推送详细 diff
+                    Serial.println("VIEW_DIFF requested, waiting for detailed diff...");
+                }
+            }
+        }
+        // 审批界面激活时跳过常规按键/轮换/音频, 但 LVGL 刷新照常
+        if (pdTRUE == xSemaphoreTake(xGuiSemaphore, portMAX_DELAY)) {
+            lv_task_handler();
+            xSemaphoreGive(xGuiSemaphore);
+        }
+        delay(2);
+        return;
     }
 
     // --- 决策界面激活: 触摸命中 + 超时; 暂停常规按键/轮换, 但 LVGL 刷新照常 ---
