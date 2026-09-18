@@ -1,0 +1,35 @@
+# Build artifacts
+.pio/
+build/
+dist/
+dist-electron/
+*.exe
+*.bin
+*.elf
+*.map
+
+# Node
+node_modules/
+
+# Python
+__pycache__/
+*.pyc
+
+# IDE
+.vscode/
+.idea/
+
+# System
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Temp
+lib_temp/
+managed_components/
+
+# Other
+.conda/
+tools/
