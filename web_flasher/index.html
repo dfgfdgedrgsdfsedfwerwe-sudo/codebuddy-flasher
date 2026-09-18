@@ -203,6 +203,10 @@
     background-position: center;
     background-repeat: no-repeat, no-repeat;
   }
+  .card-image.ai-mentor-bg {
+    background: linear-gradient(135deg, #a855f7 0%, #6366f1 100%);
+    /* 创业团队模拟器 - 紫蓝渐变 + emoji */
+  }
   .card-image.mp3-bg {
     background: linear-gradient(135deg, #fa709a 0%, #fee140 100%);
     background-image: url('images/44_mp3Player2.jpg'), linear-gradient(135deg, #fa709a 0%, #fee140 100%);
@@ -875,6 +879,19 @@ const PROJECTS = [
     ],
   },
   {
+    id: "ai-mentor-team",
+    type: "windows",
+    name: "创业团队模拟器",
+    badge: "PRO",
+    version: "v1.0.0",
+    description: "AI 驱动的创业团队协作模拟器，Windows 10+ 桌面应用，智能角色对话与决策支持",
+    icon: "🚀",
+    bgClass: "ai-mentor-bg",
+    downloadUrl: "https://github.com/dfgfdgedrgsdfsedfwerwe-sudo/codebuddy-flasher/releases/download/v1.0.0/ai-mentor-team.exe",
+    fileSize: "180 MB",
+    minWindows: "10",
+  },
+  {
     id: "44_mp3Player2",
     type: "firmware",
     name: "MP3 播放器",
@@ -1012,8 +1029,47 @@ function showView(viewName) {
 window.showView = showView;
 
 function showDetail(id) {
-  // Stub - Task 6 will implement detail population
-  console.log("Detail view for:", id);
+  const project = PROJECTS.find(p => p.id === id);
+  if (!project) return;
+
+  const detailContainer = document.getElementById("detail-container");
+
+  // 构建详情页内容
+  let techStack = '';
+  if (project.type === 'web') {
+    techStack = '<div class="detail-tech"><span>🌐 Web 应用</span><span>浏览器直接访问</span></div>';
+  } else if (project.type === 'android') {
+    techStack = `<div class="detail-tech"><span>🤖 Android</span><span>最低系统: ${project.minAndroid || 'Android 8.0'}</span></div>`;
+  } else if (project.type === 'windows') {
+    techStack = `<div class="detail-tech"><span>🪟 Windows</span><span>最低系统: Windows ${project.minWindows || '10'}</span><span>文件大小: ${project.fileSize || 'N/A'}</span></div>`;
+  }
+
+  let actionButton = '';
+  if (project.type === 'web') {
+    actionButton = `<a href="${project.url}" target="_blank" class="detail-download-btn">🌐 打开应用</a>`;
+  } else if (project.downloadUrl) {
+    actionButton = `<a href="${project.downloadUrl}" class="detail-download-btn">📥 下载安装包</a>`;
+  } else {
+    actionButton = `<button class="detail-download-btn" disabled style="opacity: 0.5; cursor: not-allowed;">暂未提供下载</button>`;
+  }
+
+  detailContainer.innerHTML = `
+    <div class="detail-header">
+      <div class="detail-icon">${project.icon || '📦'}</div>
+      <div>
+        <h2 class="detail-title">${project.name}</h2>
+        <div class="detail-version">${project.version} · ${project.badge}</div>
+      </div>
+    </div>
+    <div class="detail-description">
+      <p>${project.description}</p>
+    </div>
+    ${techStack}
+    <div class="detail-actions">
+      ${actionButton}
+      <button onclick="showView('home')" class="detail-back-btn">返回首页</button>
+    </div>
+  `;
 }
 window.showDetail = showDetail;
 
