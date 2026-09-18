@@ -16,7 +16,7 @@
  * 按键交互 (ATK BOX, UX 定稿 2026-08-31):
  * - 按键 A (KEY1): 短按=切换音频流+发送F2, 长按=发送Enter(确认)
  * - 按键 B (KEY0): 短按=切换界面(翻页), 长按=连续发送Backspace
- * - 按键 C (BOOT): 短按=返回主界面(AI Status), 长按=跳转触摸测试界面
+ * - 按键 C (BOOT): 短按=返回主界面(AI Status), 长按(<5s)=跳转触摸测试, 长按5秒=深度睡眠关机
  * - RST: 硬件复位 (不可作功能键)
  * - A+B 同时 2 秒: 触发演示模式
  * - 触摸: 仅界面内单击/长按交互 (滑动翻页已于 2026-08-31 移除, 翻页改由按键 B 短按)
@@ -64,6 +64,7 @@ static uint32_t sendFailCount  = 0;
 static const uint32_t LONG_PRESS_MS = 600;
 static const uint32_t REPEAT_INTERVAL_MS = 100;
 static const uint32_t DEMO_TRIGGER_MS = 2000;  // A+B 同时按 2 秒触发演示
+static const uint32_t SHUTDOWN_TRIGGER_MS = 5000;  // BOOT 长按 5 秒进入深度睡眠
 static uint8_t  audio_seq_num  = 0;
 static bool     espnow_ready   = false;
 
@@ -2285,14 +2286,37 @@ void loop() {
         prev_b = b;
     }
 
-    // --- 按键 BOOT (GPIO0): 短按=返回主界面(AI Status), 长按=跳转 TouchTest ---
+    // --- 按键 BOOT (GPIO0): 短按=返回主界面, 长按<5s=跳转触摸测试, 长按≥5s=深度睡眠 ---
     static uint32_t lastBtnBoot = 0;
+    static bool boot_shutdown_triggered = false;
     if (now - lastBtnBoot >= 10) {
         lastBtnBoot = now;
         bool boot = (digital_read_key_boot() == 0);
 
         if (boot && !prev_boot) {
             press_time_boot = now;
+            boot_shutdown_triggered = false;
+        } else if (boot && prev_boot) {
+            // 持续按住: 检测是否达到 5 秒深度睡眠阈值
+            uint32_t duration = now - press_time_boot;
+            if (duration >= SHUTDOWN_TRIGGER_MS && !boot_shutdown_triggered) {
+                boot_shutdown_triggered = true;
+                Serial.println("BOOT 5s -> Deep Sleep");
+                // 显示关机提示
+                if (pdTRUE == xSemaphoreTake(xGuiSemaphore, portMAX_DELAY)) {
+                    lv_obj_t *shutdown_label = lv_label_create(lv_scr_act());
+                    lv_label_set_text(shutdown_label, "Shutting down...\nPress any key to wake");
+                    lv_obj_align(shutdown_label, LV_ALIGN_CENTER, 0, 0);
+                    lv_obj_set_style_text_align(shutdown_label, LV_TEXT_ALIGN_CENTER, 0);
+                    lv_task_handler();  // 立即刷新显示
+                    xSemaphoreGive(xGuiSemaphore);
+                }
+                delay(1000);  // 显示 1 秒后进入睡眠
+                // 配置唤醒源: GPIO0 (BOOT 按键) 低电平唤醒
+                esp_sleep_enable_ext0_wakeup(GPIO_NUM_0, 0);
+                // 进入深度睡眠
+                esp_deep_sleep_start();
+            }
         } else if (!boot && prev_boot) {
             uint32_t duration = now - press_time_boot;
             if (duration < LONG_PRESS_MS) {
@@ -2300,8 +2324,8 @@ void loop() {
                 order_index = 0;
                 Serial.println("BOOT short -> return to main (AI Status)");
                 switch_screen(SCREEN_ORDER[0]);
-            } else {
-                // 长按 BOOT: 特殊功能 - 切换到触摸测试界面
+            } else if (duration < SHUTDOWN_TRIGGER_MS) {
+                // 长按 600ms-5s: 切换到触摸测试界面
                 Serial.println("BOOT long press -> Jump to TouchTest screen");
                 // 找到触摸测试界面在 SCREEN_ORDER 中的位置
                 for (uint8_t i = 0; i < 7; i++) {
@@ -2312,6 +2336,7 @@ void loop() {
                 }
                 switch_screen(6);
             }
+            // 长按≥5s 的情况已在持续期间触发深度睡眠
         }
         prev_boot = boot;
     }
