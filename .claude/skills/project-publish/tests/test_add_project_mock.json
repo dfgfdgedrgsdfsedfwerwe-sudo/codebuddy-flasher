@@ -1,0 +1,34 @@
+{
+  "firmware": {
+    "id": "test_firmware",
+    "name": "Test Firmware",
+    "badge": "FW",
+    "version": "1.0.0",
+    "type": "firmware",
+    "chip": "esp32s3",
+    "flash_mode": "dio",
+    "flash_freq": "80m",
+    "flash_size": "16MB"
+  },
+  "web": {
+    "id": "test_web",
+    "name": "Test Web App",
+    "badge": "WEB",
+    "version": "2.0.0",
+    "type": "web"
+  },
+  "android": {
+    "id": "test_android",
+    "name": "Test Android App",
+    "badge": "APK",
+    "version": "3.0.0",
+    "type": "android"
+  },
+  "windows": {
+    "id": "test_windows",
+    "name": "Test Windows App",
+    "badge": "WIN",
+    "version": "4.0.0",
+    "type": "windows"
+  }
+}

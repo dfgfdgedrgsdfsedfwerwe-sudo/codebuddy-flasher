@@ -658,7 +658,7 @@
 
 <!-- Detail View -->
 <div id="detail-view" style="display:none;">
-  <div class="detail-container">
+  <div id="detail-container" class="detail-container">
     <!-- Project Header -->
     <div class="detail-header">
       <div id="detail-icon" class="detail-icon"></div>
@@ -887,7 +887,8 @@ const PROJECTS = [
     description: "AI 驱动的创业团队协作模拟器，Windows 10+ 桌面应用，智能角色对话与决策支持",
     icon: "🚀",
     bgClass: "ai-mentor-bg",
-    downloadUrl: "https://github.com/dfgfdgedrgsdfsedfwerwe-sudo/codebuddy-flasher/releases/download/v1.0.0/ai-mentor-team.exe",
+    downloadUrl: "https://github.com/dfgfdgedrgsdfsedfwerwe-sudo/codebuddy-flasher/releases/download/v1.0.0/ai-mentor-team-setup.exe",
+    launcherUrl: "downloads/ai-mentor-team/启动器.bat",
     fileSize: "180 MB",
     minWindows: "10",
   },
@@ -1047,6 +1048,13 @@ function showDetail(id) {
   let actionButton = '';
   if (project.type === 'web') {
     actionButton = `<a href="${project.url}" target="_blank" class="detail-download-btn">🌐 打开应用</a>`;
+  } else if (project.type === 'windows') {
+    if (project.launcherUrl) {
+      actionButton = `<a href="${project.launcherUrl}" download class="detail-download-btn" style="background: linear-gradient(135deg, #10b981 0%, #059669 100%);">▶️ 下载启动器</a>`;
+    }
+    if (project.downloadUrl) {
+      actionButton += `<a href="${project.downloadUrl}" download class="detail-download-btn" style="background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);">📥 下载安装包</a>`;
+    }
   } else if (project.downloadUrl) {
     actionButton = `<a href="${project.downloadUrl}" class="detail-download-btn">📥 下载安装包</a>`;
   } else {

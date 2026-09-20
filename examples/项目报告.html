@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DFRobot UNIHIKER K10 · 项目分析报告</title>
+<style>
+  :root{
+    --bg:#0f1420; --card:#171e2e; --card2:#1d2537; --line:#2a3448;
+    --txt:#e6ebf5; --muted:#9aa7bd; --accent:#4f9cff; --accent2:#5ee0a0;
+    --warn:#ffb454; --danger:#ff6b6b; --chip:#243049;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:linear-gradient(160deg,#0d111c,#131a2b);color:var(--txt);
+    font-family:-apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;line-height:1.65}
+  .wrap{max-width:1040px;margin:0 auto;padding:40px 24px 80px}
+  header{border-bottom:1px solid var(--line);padding-bottom:28px;margin-bottom:36px}
+  .eyebrow{color:var(--accent);font-size:13px;letter-spacing:.14em;text-transform:uppercase;font-weight:600}
+  h1{font-size:34px;margin:10px 0 8px;font-weight:700}
+  .sub{color:var(--muted);font-size:16px}
+  .meta{display:flex;flex-wrap:wrap;gap:10px;margin-top:20px}
+  .chip{background:var(--chip);border:1px solid var(--line);color:var(--txt);
+    padding:6px 13px;border-radius:20px;font-size:13px}
+  .chip b{color:var(--accent2)}
+  h2{font-size:22px;margin:44px 0 16px;display:flex;align-items:center;gap:10px}
+  h2 .dot{width:9px;height:9px;border-radius:50%;background:var(--accent)}
+  h3{font-size:16px;margin:22px 0 10px;color:var(--accent2)}
+  p{color:#d3dbea}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:16px;margin-top:8px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:20px}
+  .card h4{margin:0 0 6px;font-size:15px}
+  .card p{margin:0;color:var(--muted);font-size:14px}
+  .card .big{font-size:26px;font-weight:700;color:var(--txt)}
+  table{width:100%;border-collapse:collapse;margin-top:10px;font-size:14px;
+    background:var(--card);border:1px solid var(--line);border-radius:12px;overflow:hidden}
+  th,td{text-align:left;padding:11px 14px;border-bottom:1px solid var(--line)}
+  th{background:var(--card2);color:var(--muted);font-weight:600;font-size:12px;letter-spacing:.05em;text-transform:uppercase}
+  tr:last-child td{border-bottom:none}
+  td code{background:#0c1120;color:var(--accent);padding:2px 7px;border-radius:6px;font-size:13px}
+  code,pre{font-family:"SFMono-Regular",Consolas,"Cascadia Code",monospace}
+  pre{background:#0b1020;border:1px solid var(--line);border-radius:12px;padding:16px 18px;
+    overflow-x:auto;font-size:13.5px;color:#cbe3ff}
+  pre .c{color:#6b7a94}
+  .callout{border-radius:12px;padding:16px 18px;margin:14px 0;border:1px solid;font-size:14.5px}
+  .callout.warn{background:rgba(255,180,84,.08);border-color:rgba(255,180,84,.35)}
+  .callout.warn b{color:var(--warn)}
+  .callout.info{background:rgba(79,156,255,.08);border-color:rgba(79,156,255,.32)}
+  .callout.info b{color:var(--accent)}
+  ul{padding-left:20px}
+  li{margin:6px 0;color:#d3dbea}
+  .flow{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:14px 0}
+  .flow .step{background:var(--card2);border:1px solid var(--line);border-radius:10px;padding:9px 14px;font-size:13.5px}
+  .flow .arrow{color:var(--accent);font-size:18px}
+  .tag{display:inline-block;font-size:11px;padding:2px 8px;border-radius:6px;font-weight:600}
+  .tag.ui{background:rgba(94,224,160,.15);color:var(--accent2)}
+  .tag.hw{background:rgba(79,156,255,.15);color:var(--accent)}
+  .tag.audio{background:rgba(255,180,84,.15);color:var(--warn)}
+  .tag.game{background:rgba(255,107,107,.15);color:var(--danger)}
+  footer{margin-top:56px;padding-top:24px;border-top:1px solid var(--line);color:var(--muted);font-size:13px;text-align:center}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div class="eyebrow">嵌入式项目分析报告</div>
+    <h1>DFRobot UNIHIKER K10 · Arduino 示例工程</h1>
+    <div class="sub">基于 ESP32-S3 的显示 / 音频 / LVGL 图形化演示合集（PlatformIO 工程）</div>
+    <div class="meta">
+      <span class="chip">主控 <b>ESP32-S3</b></span>
+      <span class="chip">框架 <b>Arduino</b></span>
+      <span class="chip">构建 <b>PlatformIO</b></span>
+      <span class="chip">Flash <b>16 MB</b></span>
+      <span class="chip">示例 <b>17 个</b></span>
+      <span class="chip">生成日期 <b>2026-08-06</b></span>
+    </div>
+  </header>
+
+  <h2><span class="dot"></span>一句话总结</h2>
+  <p>这是 DFRobot 行空板 K10（UNIHIKER K10）的官方 Arduino 教学示例仓库。它把 <b>屏幕点亮、传感器读取、音频播放、LVGL 图形界面、小游戏</b> 等十几个独立 Demo 集中在一个 PlatformIO 工程里，通过 <code>platformio.ini</code> 里的一行 <code>default_envs</code> 来切换当前编译哪个示例——每次只编译一个。</p>
+
+  <div class="grid">
+    <div class="card"><div class="big">17</div><h4>独立示例</h4><p>从点屏、传感器到小游戏，各自独立可编译</p></div>
+    <div class="card"><div class="big">20+</div><h4>第三方库</h4><p>LVGL、LovyanGFX、TFT_eSPI、音频与 JPEG 解码等</p></div>
+    <div class="card"><div class="big">240×320</div><h4>屏幕分辨率</h4><p>ILI9341 SPI 面板，经 LovyanGFX 驱动</p></div>
+    <div class="card"><div class="big">16 MB</div><h4>Flash 容量</h4><p>自定义分区表 + SPIFFS 文件系统 + PSRAM</p></div>
+  </div>
+
+  <h2><span class="dot"></span>硬件平台</h2>
+  <div class="grid">
+    <div class="card"><h4>主控 MCU</h4><p>ESP32-S3（<code>esp32-s3-devkitc-1</code>），带 PSRAM（<code>qio_opi</code> 内存模式），启用 USB CDC 启动。</p></div>
+    <div class="card"><h4>显示屏</h4><p>ILI9341 面板，240×320，走 SPI2 总线。引脚：SCLK=12、MOSI=21、DC=13、CS=14，40MHz 写速率，启用 DMA。</p></div>
+    <div class="card"><h4>IO 扩展芯片</h4><p>XL95x5（I2C）负责扩展 GPIO——按键 A/B、屏幕背光复位等都挂在扩展芯片上，而非直接连 MCU。</p></div>
+    <div class="card"><h4>板载外设</h4><p>AHT20 温湿度、SC7A20H 加速度计、I2S 音频输出、SD 卡、麦克风（语音识别模型 <code>srmodels.bin</code>）。</p></div>
+  </div>
+
+  <h2><span class="dot"></span>技术栈</h2>
+  <table>
+    <tr><th>层次</th><th>使用的库 / 技术</th><th>作用</th></tr>
+    <tr><td>图形界面</td><td><code>LVGL</code>（子模块）</td><td>UI 框架：GIF、图片浏览、音乐播放器、小游戏界面</td></tr>
+    <tr><td>显示驱动</td><td><code>LovyanGFX</code>（子模块）/ <code>TFT_eSPI</code> / <code>Arduino_GFX</code></td><td>三套显示驱动方案，示例中分别演示</td></tr>
+    <tr><td>音频</td><td><code>ESP32-audioI2S</code> / <code>I2S</code></td><td>网络音乐、MP3 播放</td></tr>
+    <tr><td>图像解码</td><td><code>JPEGDEC</code> / <code>ESP32_JPEG</code></td><td>MJPEG 视频、PNG/JPG 浏览</td></tr>
+    <tr><td>传感器</td><td><code>DFRobot_AHT20</code> / <code>Adafruit_LTR303</code></td><td>温湿度、光照传感器</td></tr>
+    <tr><td>扩展 IO</td><td><code>XL95x5</code> / <code>ESP32_IO_Expander</code></td><td>I2C GPIO 扩展、按键</td></tr>
+    <tr><td>数据</td><td><code>ArduinoJson</code> / <code>Arduino_DriveBus</code></td><td>JSON 解析、总线驱动</td></tr>
+  </table>
+
+  <h2><span class="dot"></span>核心工作流：一行切换示例</h2>
+  <p>整个工程最关键、也最容易踩坑的一点——<b>你不是选择"编译全部"，而是通过 <code>default_envs</code> 指定当前编译哪一个 Demo</b>。<code>src_dir</code> 会跟着这个值自动指向对应的示例目录：</p>
+  <pre><span class="c">; platformio.ini</span>
+[platformio]
+default_envs = 30_lvgl_Gif        <span class="c">; ← 改这一行来切换示例</span>
+src_dir = examples/${platformio.default_envs}   <span class="c">; 源码目录随之自动切换</span></pre>
+  <div class="flow">
+    <span class="step">修改 <code>default_envs</code></span>
+    <span class="arrow">→</span>
+    <span class="step"><code>pio run</code> 编译</span>
+    <span class="arrow">→</span>
+    <span class="step"><code>pio run -t upload</code> 烧录</span>
+    <span class="arrow">→</span>
+    <span class="step"><code>pio device monitor</code> 看串口</span>
+  </div>
+
+  <h2><span class="dot"></span>示例清单</h2>
+  <table>
+    <tr><th>环境名</th><th>类型</th><th>说明</th></tr>
+    <tr><td><code>01_display_esp_expnader</code></td><td><span class="tag hw">硬件</span></td><td>用 esp_IOexpander 库驱动扩展芯片</td></tr>
+    <tr><td><code>02_display_XL95x5_LTR303</code></td><td><span class="tag hw">硬件</span></td><td>用 XL95x5 库驱动扩展芯片 + 光照传感器</td></tr>
+    <tr><td><code>10_Lgfx_usage</code></td><td><span class="tag ui">显示</span></td><td>LovyanGFX 点亮屏幕</td></tr>
+    <tr><td><code>11_TFTeSPI_usage</code></td><td><span class="tag ui">显示</span></td><td>TFT_eSPI 点亮屏幕</td></tr>
+    <tr><td><code>12_Arduino_gfx</code></td><td><span class="tag ui">显示</span></td><td>Arduino_GFX 点亮屏幕</td></tr>
+    <tr><td><code>20_button</code></td><td><span class="tag hw">硬件</span></td><td>按键使用案例（查看串口输出）</td></tr>
+    <tr><td><code>21_aht20</code></td><td><span class="tag hw">硬件</span></td><td>AHT20 温湿度传感器</td></tr>
+    <tr><td><code>22_SC207aH</code></td><td><span class="tag hw">硬件</span></td><td>SC7A20H 加速度传感器测试</td></tr>
+    <tr><td><code>23_music_test</code></td><td><span class="tag audio">音频</span></td><td>播放网络音乐的基本测试</td></tr>
+    <tr><td><code>30_lvgl_Gif</code></td><td><span class="tag ui">LVGL</span></td><td>播放澎湃开机 GIF 动图 <b>（当前默认）</b></td></tr>
+    <tr><td><code>31_png_browser</code></td><td><span class="tag ui">LVGL</span></td><td>基于 LVGL 的图片浏览器（读 SD 卡）</td></tr>
+    <tr><td><code>32_DEMO_MJPEG</code></td><td><span class="tag ui">LVGL</span></td><td>MJPEG 视频播放器演示</td></tr>
+    <tr><td><code>40_Snake_Game</code></td><td><span class="tag game">游戏</span></td><td>贪吃蛇游戏</td></tr>
+    <tr><td><code>41_Snake_Game2</code></td><td><span class="tag game">游戏</span></td><td>使用 IO 按键的贪吃蛇</td></tr>
+    <tr><td><code>42_demo_ui_lcd</code></td><td><span class="tag ui">LVGL</span></td><td>图形界面设计（时钟 / 气泡 / 传感器动画）</td></tr>
+    <tr><td><code>43_RTOS_face</code></td><td><span class="tag ui">LVGL</span></td><td>摄像头人脸识别 + 屏幕显示</td></tr>
+    <tr><td><code>44_mp3Player2</code></td><td><span class="tag audio">音频</span></td><td>基于 LVGL 的 MP3 播放器</td></tr>
+  </table>
+
+  <h2><span class="dot"></span>共享的硬件抽象层</h2>
+  <p>多数示例复用同一套初始化模板，理解这三块就能看懂大部分 Demo：</p>
+  <div class="grid">
+    <div class="card"><h4><code>K10_Lcd</code></h4><p>位于 <code>lib/bsp_handler/Lcd_handler.hpp</code>，继承 LovyanGFX 的 <code>LGFX_Device</code>，把 ILI9341 的引脚、SPI 频率、DMA 全部硬编码好。</p></div>
+    <div class="card"><h4><code>XL95x5</code> 扩展芯片</h4><p>按键、背光复位等 GPIO 都经过 I2C 扩展芯片，<code>lvgl_begin()</code> 里先初始化它并复位屏幕背光。</p></div>
+    <div class="card"><h4>LVGL 初始化模板</h4><p>固定套路：在 PSRAM 里分配双绘制缓冲区 → 注册 <code>my_disp_flush</code>（DMA 刷屏）→ 用 <code>xGuiSemaphore</code> 互斥锁包裹 <code>lv_task_handler()</code>。</p></div>
+  </div>
+
+  <h2><span class="dot"></span>⚠️ 已知问题与注意事项</h2>
+  <div class="callout warn">
+    <b>拉取后无法直接编译。</b> README 明确指出：<code>Arduino_DriveBus</code> 和 <code>ESP32_JPEG</code> 这两个库下载后是<b>空文件夹</b>，需要从仓库根目录的 <code>lib.zip</code>（约 1.7 MB）中手动解压找回，否则编译报错。
+  </div>
+  <div class="callout info">
+    <b>子模块需初始化。</b> <code>lvgl</code> 和 <code>LovyanGFX</code> 是 git 子模块（见 <code>.gitmodules</code>）。克隆后需执行 <code>git submodule update --init --recursive</code>。
+  </div>
+  <div class="callout info">
+    <b>32_DEMO_MJPEG 有额外依赖。</b> 该示例需要手动把 <code>ESP32_JPEG</code> 库放进 lib 目录，并链接 <code>libesp_codec.a</code>（见 platformio.ini 中该 env 的 <code>build_flags</code>）。
+  </div>
+  <ul>
+    <li>使用<b>自定义 16MB 分区表</b> <code>large_spiffs_16MB.csv</code>：factory 5MB、model(spiffs) 4.5MB、voice_data(fat) 2.5MB——为语音模型和资源预留了大空间。</li>
+    <li>没有自动化测试框架，<code>test/</code> 目录仅含 README。<b>验证方式 = 烧录到真实硬件观察</b>。</li>
+    <li>串口波特率 <code>115200</code>，烧录速率 <code>921600</code>。</li>
+    <li>仓库含中文目录 <code>sd卡文件</code>（SD 卡示例所需的媒体资源）。</li>
+  </ul>
+
+  <h2><span class="dot"></span>快速上手命令</h2>
+  <pre><span class="c"># 1. 初始化子模块（首次克隆后）</span>
+git submodule update --init --recursive
+
+<span class="c"># 2. 从 lib.zip 恢复空库（Arduino_DriveBus / ESP32_JPEG）</span>
+
+<span class="c"># 3. 在 platformio.ini 里设置要跑的示例</span>
+<span class="c">#    default_envs = 30_lvgl_Gif</span>
+
+<span class="c"># 4. 编译 / 烧录 / 串口监视</span>
+pio run
+pio run -t upload
+pio device monitor</pre>
+
+  <h2><span class="dot"></span>整体评价</h2>
+  <p>这是一个组织清晰的<b>官方硬件教学示例库</b>，而非单一应用。设计目标是让用户逐个体验行空板 K10 的各项能力——从最基础的点屏，到 LVGL 图形应用，再到音频与 AI 人脸识别。工程质量的关注点在"每个示例能独立跑通"，代价是需要手动处理库依赖（lib.zip、子模块），首次上手的主要障碍集中在环境准备而非代码本身。配套教程见 README 中的 DFRobot 论坛链接。</p>
+
+  <footer>
+    报告由 Claude Code 基于源码静态分析生成 · 内容依据 <code>platformio.ini</code>、<code>README.md</code>、<code>.gitmodules</code>、分区表及示例源码
+  </footer>
+
+</div>
+</body>
+</html>

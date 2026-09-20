@@ -2296,9 +2296,12 @@ void loop() {
         if (boot && !prev_boot) {
             press_time_boot = now;
             boot_shutdown_triggered = false;
+            Serial.println("BOOT pressed");
         } else if (boot && prev_boot) {
-            // 持续按住: 检测是否达到 5 秒深度睡眠阈值
             uint32_t duration = now - press_time_boot;
+            if (duration % 1000 < 15) {
+                Serial.printf("BOOT holding %lu ms\n", duration);
+            }
             if (duration >= SHUTDOWN_TRIGGER_MS && !boot_shutdown_triggered) {
                 boot_shutdown_triggered = true;
                 Serial.println("BOOT 5s -> Deep Sleep");

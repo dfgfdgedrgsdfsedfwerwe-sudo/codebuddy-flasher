@@ -1,0 +1,40 @@
+# ---- PlatformIO (K10) ----
+.pio/
+.pio
+
+# ---- ESP-IDF (dongle_firmware) ----
+# 编译产物，idf.py build 会重新生成
+dongle_firmware/build/
+# 自动下载的托管组件，idf.py reconfigure 会依据 dependencies.lock 重新拉取
+dongle_firmware/managed_components/
+# 本地机器相关的 sdkconfig 备份（保留 sdkconfig 和 sdkconfig.defaults 本身）
+sdkconfig.old
+
+# ---- 本地 Python 环境 ----
+.conda/
+__pycache__/
+*.pyc
+*.pyo
+
+# ---- IDE / 编辑器 ----
+.vscode/
+.vscode/.browse.c_cpp.db*
+.vscode/c_cpp_properties.json
+.vscode/launch.json
+.vscode/ipch
+.vs/
+.idea/
+
+# ---- 日志和临时文件 ----
+*.log
+dongle_firmware/build_log.txt
+
+# ---- 操作系统 ----
+Thumbs.db
+.DS_Store
+desktop.ini
+
+# ---- SD 卡运行时素材（版权音乐 + 大文件，不入库）----
+# 这些是放到 SD 卡上运行时使用的素材，不是编译输入
+sd卡文件/**/*.mp3
+sd卡文件/**/*.wav

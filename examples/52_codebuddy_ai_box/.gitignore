@@ -1,0 +1,49 @@
+# Python 运行时
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+*.spec
+
+# 测试缓存
+.pytest_cache/
+.runtime/
+
+# 日志文件
+*.log
+*.log.*
+monitor.pid
+
+# 测试和临时文本文件（排除 tests/ 目录里的正式单测）
+/test_*.py
+/pc_tools/test_*.py
+*.txt
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# 临时文件
+temp_*.py
+
+# 批处理脚本（开发便捷脚本）
+*.bat
+
+# 备份文件
+*_v1.md
+*_v1.*
+*.backup
+
+# Claude 会话
+.claude/
+SESSION_SUMMARY_*.md
+

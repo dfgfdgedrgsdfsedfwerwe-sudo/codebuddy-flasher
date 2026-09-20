@@ -1,0 +1,2 @@
+pyserial>=3.5
+claude-agent-sdk>=0.1.0

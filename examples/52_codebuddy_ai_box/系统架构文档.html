@@ -1,0 +1,649 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CodeBuddy AI BOX 系统架构文档</title>
+<style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+        font-family: -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
+        line-height: 1.7;
+        color: #2d3748;
+        background: #f7fafc;
+    }
+    .layout { display: flex; max-width: 1400px; margin: 0 auto; }
+
+    /* 侧边栏导航 */
+    .sidebar {
+        width: 260px;
+        position: sticky;
+        top: 0;
+        height: 100vh;
+        overflow-y: auto;
+        background: #1a202c;
+        padding: 24px 0;
+        flex-shrink: 0;
+    }
+    .sidebar h2 {
+        color: #63b3ed;
+        font-size: 15px;
+        padding: 0 24px 12px;
+        border-bottom: 1px solid #2d3748;
+        margin-bottom: 12px;
+    }
+    .sidebar a {
+        display: block;
+        color: #cbd5e0;
+        text-decoration: none;
+        padding: 8px 24px;
+        font-size: 14px;
+        border-left: 3px solid transparent;
+        transition: all 0.15s;
+    }
+    .sidebar a:hover {
+        background: #2d3748;
+        color: #90cdf4;
+        border-left-color: #63b3ed;
+    }
+
+    /* 主内容区 */
+    .content {
+        flex: 1;
+        padding: 40px 56px;
+        max-width: 1000px;
+    }
+    .hero {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        padding: 40px;
+        border-radius: 16px;
+        margin-bottom: 32px;
+    }
+    .hero h1 { font-size: 32px; margin-bottom: 8px; }
+    .hero .meta { opacity: 0.85; font-size: 14px; }
+    .hero p { margin-top: 16px; font-size: 16px; opacity: 0.95; }
+
+    h2.section {
+        font-size: 24px;
+        color: #2d3748;
+        margin: 40px 0 16px;
+        padding-bottom: 8px;
+        border-bottom: 3px solid #667eea;
+    }
+    h3 { font-size: 18px; color: #4a5568; margin: 24px 0 12px; }
+    h4 {
+        font-size: 15px;
+        color: #667eea;
+        margin: 18px 0 8px;
+        padding-left: 10px;
+        border-left: 3px solid #cbd5e0;
+    }
+    p { margin-bottom: 12px; }
+
+    ul, ol { margin: 12px 0 12px 24px; }
+    li { margin-bottom: 6px; }
+
+    /* 代码块 */
+    pre {
+        background: #1a202c;
+        color: #e2e8f0;
+        padding: 20px;
+        border-radius: 10px;
+        overflow-x: auto;
+        margin: 16px 0;
+        font-family: "Cascadia Code", "Consolas", monospace;
+        font-size: 13px;
+        line-height: 1.5;
+    }
+    code {
+        background: #edf2f7;
+        color: #d53f8c;
+        padding: 2px 6px;
+        border-radius: 4px;
+        font-family: "Consolas", monospace;
+        font-size: 0.9em;
+    }
+    pre code { background: none; color: inherit; padding: 0; }
+
+    /* 表格 */
+    table {
+        width: 100%;
+        border-collapse: collapse;
+        margin: 16px 0;
+        font-size: 14px;
+        background: white;
+        border-radius: 8px;
+        overflow: hidden;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    }
+    th {
+        background: #667eea;
+        color: white;
+        padding: 12px;
+        text-align: left;
+        font-weight: 600;
+    }
+    td { padding: 10px 12px; border-top: 1px solid #e2e8f0; }
+    tr:nth-child(even) td { background: #f7fafc; }
+
+    /* 提示框 */
+    .callout {
+        border-radius: 8px;
+        padding: 16px 20px;
+        margin: 16px 0;
+        border-left: 4px solid;
+    }
+    .callout.warn { background: #fffaf0; border-color: #ed8936; }
+    .callout.info { background: #ebf8ff; border-color: #4299e1; }
+    .callout strong { display: block; margin-bottom: 4px; }
+
+    /* 卡片网格 */
+    .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; margin: 20px 0; }
+    .card {
+        background: white;
+        border-radius: 12px;
+        padding: 20px;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+        border-top: 4px solid #667eea;
+    }
+    .card h4 { color: #2d3748; margin-bottom: 8px; font-size: 16px; }
+    .card p { font-size: 13px; color: #718096; margin: 0; }
+
+    .badge {
+        display: inline-block;
+        background: #667eea;
+        color: white;
+        padding: 2px 10px;
+        border-radius: 12px;
+        font-size: 12px;
+        margin-left: 8px;
+    }
+    footer {
+        margin-top: 48px;
+        padding-top: 24px;
+        border-top: 1px solid #e2e8f0;
+        color: #a0aec0;
+        font-size: 13px;
+        text-align: center;
+    }
+</style>
+</head>
+<body>
+<div class="layout">
+    <nav class="sidebar">
+        <h2>目录导航</h2>
+        <a href="#overview">一、系统总览</a>
+        <a href="#hardware">二、三层硬件架构</a>
+        <a href="#firmware">二·五、ATK BOX 固件详解</a>
+        <a href="#pc-arch">三、PC 端软件架构</a>
+        <a href="#hook-mcp-detail">三·五、Hook / MCP 详解</a>
+        <a href="#files">四、文件清单</a>
+        <a href="#protocol">五、通信协议</a>
+        <a href="#usage">六、使用流程</a>
+        <a href="#pitfalls">七、已知陷阱</a>
+        <a href="#docs">八、相关文档</a>
+        <a href="#progress">九、开发进度</a>
+        <a href="#highlights">十、技术亮点</a>
+    </nav>
+
+    <main class="content">
+        <div class="hero">
+            <h1>CodeBuddy AI BOX 系统架构文档</h1>
+            <div class="meta">更新日期：2026-09-09 &nbsp;|&nbsp; 版本：CodeBuddy Bridge v1.0.0</div>
+            <p>一套「AI 编程助手 ←→ 硬件交互终端」的双向系统：状态可视化 + 决策审批 + 音频键盘。</p>
+        </div>
+
+        <h2 class="section" id="overview">一、系统总览</h2>
+        <p>CodeBuddy AI BOX 提供三大核心能力：</p>
+        <div class="cards">
+            <div class="card">
+                <h4>上行 · 状态可视化</h4>
+                <p>把 Claude Code 的 Token 用量、项目进度、AI 情绪、当前工具实时推送到 ATK BOX 屏幕。</p>
+            </div>
+            <div class="card">
+                <h4>下行 · 决策审批</h4>
+                <p>AI 遇岔路口时推送选择题到触摸屏，用户点选后结果回传，AI 继续执行。</p>
+            </div>
+            <div class="card">
+                <h4>音频 + 键盘</h4>
+                <p>ATK BOX 麦克风与按键经 Dongle 转为 USB 声卡 + HID 键盘送到 PC。</p>
+            </div>
+        </div>
+
+        <h3>端到端数据流</h3>
+        <pre>┌─────────────┐   USB Serial    ┌──────────┐   ESP-NOW 2.4G   ┌────────────┐
+│     PC      │◄───────────────►│  Dongle  │◄────────────────►│  ATK BOX   │
+│ (上位机工具) │   115200 8N1    │(ESP32-S3)│   Channel 1      │ (ESP32-S3) │
+└─────────────┘                 └──────────┘                  └────────────┘
+   Python 工具集                  USB 复合设备                   触摸屏 + 麦克风
+   / GUI / MCP                    HID + UAC 声卡                 7 屏 LVGL UI</pre>
+
+        <h2 class="section" id="hardware">二、三层硬件架构</h2>
+        <table>
+            <tr><th>层</th><th>硬件</th><th>固件/软件</th><th>职责</th></tr>
+            <tr><td><strong>PC 端</strong></td><td>电脑</td><td>Python 工具集 / <code>CodeBuddyBridge.exe</code></td><td>数据采集、协议封装、决策交互</td></tr>
+            <tr><td><strong>中继</strong></td><td>Dongle (ESP32-S3)</td><td>ESP-IDF</td><td>USB↔ESP-NOW 转发、USB 声卡/键盘</td></tr>
+            <tr><td><strong>终端</strong></td><td>ATK BOX (ESP32-S3)</td><td>Arduino</td><td>触摸屏 UI、麦克风、按键</td></tr>
+        </table>
+
+        <h2 class="section" id="firmware">二·五、ATK BOX 固件详解 <span class="badge">终端层</span></h2>
+        <p>本章详细展开终端层的实现，包括 7 个 UI 界面、按键/触摸交互、硬件驱动、状态机逻辑。</p>
+
+        <h3>A. 七大 UI 界面（LVGL）</h3>
+        <p>ATK BOX 运行 7 个全屏 LVGL 界面，按键 B (K1) 短按循环切换，顺序为 <code>{5→2→1→3→4→6→0}</code>。</p>
+        <table>
+            <tr><th>界面 ID</th><th>名称</th><th>主要内容</th><th>数据来源</th><th>交互能力</th></tr>
+            <tr><td><strong>0</strong></td><td>ESP-NOW Status</td><td>连接状态、丢包率、MAC</td><td>本地统计</td><td>无（只读）</td></tr>
+            <tr><td><strong>1</strong></td><td>Token Usage</td><td>AI 服务 Token 用量（≤5）</td><td>PC 推送 0x07</td><td>✅ 演示：A 短按高亮</td></tr>
+            <tr><td><strong>2</strong></td><td>Coding Status</td><td>项目进度列表（≤6）</td><td>PC 推送 0x08</td><td>无</td></tr>
+            <tr><td><strong>3</strong></td><td>Product Inspo</td><td>灵感卡片 + 打字机</td><td>演示数据</td><td>✅ 演示：A 重启动画</td></tr>
+            <tr><td><strong>4</strong></td><td>User Profile</td><td>用户照片 + 姓名</td><td>SD 卡 D:/user.png</td><td>✅ 演示：A 切换头像</td></tr>
+            <tr><td><strong>5</strong></td><td>AI Status</td><td>动画云朵 + 情绪</td><td>PC 0x09 或本地循环</td><td>✅ 点击切换情绪</td></tr>
+            <tr><td><strong>6</strong></td><td>TouchTest</td><td>触摸测试（坐标+绿点）</td><td>实时触摸</td><td>✅ 画点验证校准</td></tr>
+        </table>
+        <div class="callout info">
+            <strong>界面 7 - Decision UI</strong> （不在循环中）<br>
+            PC 推送 0x0A 时临时覆盖当前界面，显示标题 + ≤4 选项，用户触摸选择后发送 0x0B 回执，自动返回原界面。
+        </div>
+
+        <h4>A.5 界面 5 - AI Status（启动默认界面）</h4>
+        <p><strong>功能</strong>：实时显示 AI 工作状态，用动画云朵 + 表情表达情绪。</p>
+        <table>
+            <tr><th>情绪</th><th>枚举值</th><th>眉毛</th><th>嘴巴</th><th>默认文字</th><th>触发场景</th></tr>
+            <tr><td>THINKING</td><td>0</td><td>上扬（Y-4px）</td><td>小闭嘴</td><td>"Thinking..."</td><td>用户提交 prompt</td></tr>
+            <tr><td>CODING</td><td>1</td><td>皱眉（Y+5px）</td><td>动嘴说话（250ms 开合）</td><td>"Coding..."</td><td>工具执行中</td></tr>
+            <tr><td>DONE</td><td>2</td><td>平眉（Y±0）</td><td>宽笑脸（26×14px）</td><td>"Done!"</td><td>任务完成</td></tr>
+        </table>
+        <ul>
+            <li><strong>本地模式</strong>（默认）：每 4 秒自动循环切换情绪</li>
+            <li><strong>外部模式</strong>：收到 PC 的 0x09 帧后覆盖本地循环，15 秒无新帧则恢复本地</li>
+            <li><strong>动画细节</strong>：眼睛每 3 秒眨一次，CODING 状态下嘴巴 250ms 开合</li>
+            <li><strong>触摸交互</strong>：点击云朵区域 → 手动切换到下一个情绪</li>
+        </ul>
+
+        <h3>B. 按键交互设计（4 键布局）</h3>
+        <table>
+            <tr><th>按键</th><th>硬件连接</th><th>软件可读</th><th>短按 (&lt;0.6s)</th><th>长按 (≥0.6s)</th></tr>
+            <tr><td><strong>KEY1 (A/K2)</strong></td><td>XL9555 P0.3</td><td>✅</td><td>F2 + 切换音频流</td><td>Enter 确认</td></tr>
+            <tr><td><strong>KEY0 (B/K1)</strong></td><td>XL9555 P0.4</td><td>✅</td><td>切换到下一个界面</td><td>连续 Backspace (100ms 间隔)</td></tr>
+            <tr><td><strong>BOOT (K0)</strong></td><td>GPIO0</td><td>✅</td><td>返回主界面（AI Status）</td><td>跳转触摸测试界面</td></tr>
+            <tr><td><strong>RST</strong></td><td>EN Pin</td><td>❌</td><td>硬件复位</td><td>硬件复位</td></tr>
+        </table>
+        <div class="callout warn">
+            <strong>组合键</strong><br>
+            A + B 同时按 2 秒 → 触发<strong>演示模式</strong>（注入模拟数据到 Token/Project/Inspo 界面）<br><br>
+            <strong>注意</strong>：BOOT 按键在启动时按住会进入下载模式，不要在开机/复位时按住。
+        </div>
+
+        <h3>C. 触摸交互（CHSC5432 驱动）</h3>
+        <p><strong>触摸芯片</strong>：CHSC5432 电容触摸 IC，I2C 地址 0x2E。</p>
+        <pre><code>// 坐标校准（AtkBoxTouch.h）
+#define TOUCH_SWAP_XY   0   // ATK BOX 验证值：0（不交换 X/Y）
+#define TOUCH_FLIP_X    0   // X 镜像
+#define TOUCH_FLIP_Y    0   // Y 镜像</code></pre>
+        <p><strong>复位控制</strong>：通过 XL9555 P0.6 控制 CHSC5432 的 RST 引脚（初始化时拉低 10ms 再拉高）。</p>
+        <p><strong>触摸用途</strong>（2026-08-31 交互定稿）：</p>
+        <ul>
+            <li>❌ <s>左右滑动切换界面</s>（已移除，改由按键 B 短按）</li>
+            <li>✅ 界面内点击：详情卡片、AI 情绪切换、按钮点击</li>
+            <li>✅ TouchTest 界面画点验证</li>
+            <li>✅ Decision UI 触摸选项按钮</li>
+        </ul>
+
+        <h3>D. 硬件驱动清单</h3>
+        <table>
+            <tr><th>驱动文件</th><th>硬件</th><th>接口</th><th>功能</th></tr>
+            <tr><td><code>AtkBoxBoard.h</code></td><td>板级</td><td>-</td><td>背光/蜂鸣器/喇叭/IO 初始化</td></tr>
+            <tr><td><code>AtkBoxTouch.h</code></td><td>CHSC5432</td><td>I2C (0x2E)</td><td>电容触摸，复位控制</td></tr>
+            <tr><td><code>AtkBoxXL9555.h</code></td><td>XL9555</td><td>I2C (0x20)</td><td>16 位 IO 扩展（按键/背光/蜂鸣器）</td></tr>
+            <tr><td><code>AtkBoxAudio.h</code></td><td>ES8311</td><td>I2C (0x18) + I2S</td><td>音频编解码</td></tr>
+            <tr><td><code>main.h</code></td><td>ST7789</td><td>8bit 并口</td><td>LCD 驱动（LovyanGFX）</td></tr>
+            <tr><td><code>espnow_protocol.h</code></td><td>ESP32</td><td>ESP-NOW</td><td>无线协议帧定义</td></tr>
+        </table>
+
+        <h2 class="section" id="pc-arch">三、PC 端软件架构 <span class="badge">重点</span></h2>
+        <p>PC 端采用「<strong>daemon + 多客户端</strong>」分层设计，围绕一个独占串口的守护进程展开。</p>
+
+        <h3>3.1 分层图</h3>
+        <pre>┌──────────────────────────────────────────────────────────────┐
+│                        客户端层 (Clients)                       │
+├────────────┬───────────────┬──────────────┬───────────────────┤
+│ hook_client│ mcp_atkbox_   │ guess_number │ realtime_monitor  │
+│   .py      │  server.py    │  _game.py    │   .py (可独立)     │
+│(Claude Hook)│ (MCP 工具)   │  (游戏)      │  (状态推送)        │
+└──────┬─────┴───────┬───────┴──────┬───────┴─────────┬─────────┘
+       └─────────────┴──────────────┴─────────────────┘
+                            │ TCP JSON  127.0.0.1:47100
+                            ▼
+┌──────────────────────────────────────────────────────────────┐
+│              atkbox_daemon.py  (守护进程，独占串口)             │
+│  ┌────────────────┐  ┌──────────────┐  ┌────────────────────┐ │
+│  │ IPC Server     │  │ 后台推送线程  │  │ 决策/审批阻塞处理   │ │
+│  │ (TCP 47100)    │  │ Token/Project │  │ (等回执)           │ │
+│  └────────────────┘  └──────────────┘  └────────────────────┘ │
+│                    ┌────────────────┐                          │
+│                    │ SerialManager  │  串口独占 + 断线重连      │
+│                    └───────┬────────┘                          │
+└────────────────────────────┼──────────────────────────────────┘
+                             │ COM6 @ 115200
+                             ▼   Dongle</pre>
+
+        <h3>3.2 关键设计：为什么要 daemon？</h3>
+        <p><strong>串口只能被一个进程独占。</strong>若每个工具都直接开 COM6 会互相抢占报 <code>PermissionError</code>。因此引入 daemon 作为唯一持有串口的进程，其他工具通过 TCP IPC 向它发请求。</p>
+        <div class="callout warn">
+            <strong>⚠️ 重要区分</strong>
+            <code>mcp_atkbox_server.py</code> <strong>不是</strong> daemon，它是 MCP stdio 客户端，自己去连 47100。「MCP 工具能用」不等于「daemon 在跑」——daemon 需单独启动，或由 <code>CodeBuddyBridge.exe</code> GUI 托管。
+        </div>
+
+        <h3>3.3 IPC 协议（TCP 47100）</h3>
+        <p>单行 JSON，请求/响应模式，三种类型：</p>
+        <table>
+            <tr><th>type</th><th>请求示例</th><th>响应</th><th>行为</th></tr>
+            <tr><td><code>status</code></td><td>state/tool/detail</td><td><code>{"ok":true}</code></td><td>非阻塞，1s 节流</td></tr>
+            <tr><td><code>decision</code></td><td>title/options[≤4]</td><td><code>{"chosen":0-3}</code></td><td>阻塞≤40s，255=取消</td></tr>
+            <tr><td><code>approval</code></td><td>tool/file/preview</td><td><code>{"decision":"allow/deny"}</code></td><td>阻塞等回执</td></tr>
+        </table>
+
+        <h2 class="section" id="hook-mcp-detail">三·五、两大客户端功能详解 <span class="badge">Hook / MCP</span></h2>
+        <p>客户端层最重要的两个入口是 <strong>Claude Hook</strong> 和 <strong>MCP 工具</strong>。Hook 是「被动监听」Claude 运行自动推送状态/拦截审批；MCP 是「主动调用」让 Claude 在硬件上问问题。</p>
+
+        <h3>A. Claude Hook 客户端（hook_client.py）</h3>
+        <p><strong>定位</strong>：瘦客户端，把 Claude Code 触发的 Hook 事件翻译成 IPC 请求发给 daemon。每次触发都是一次性进程（启动 → 连 47100 → 发请求 → 退出）。</p>
+        <p><strong>调用方式</strong>：<code>python hook_client.py &lt;event_type&gt;</code>，Claude Code 通过 stdin 传入 JSON（包含 prompt、tool_name、tool_input 等）。</p>
+
+        <h4>A.1 四个正式 Hook 事件</h4>
+        <table>
+            <tr><th>事件</th><th>Claude 触发时机</th><th>hook_client 行为</th><th>发送的 IPC</th><th>是否阻塞</th></tr>
+            <tr><td><strong>user_prompt</strong></td><td>用户提交一条 prompt</td><td>取 prompt 前 50 字 → 发 THINKING 状态</td><td><code>status/THINKING</code></td><td>否（静默退出）</td></tr>
+            <tr><td><strong>pre_tool</strong></td><td>工具执行<strong>前</strong></td><td>见下方拦截逻辑</td><td><code>approval</code> 或 <code>status</code></td><td>Write/Edit 类阻塞</td></tr>
+            <tr><td><strong>post_tool</strong></td><td>工具执行<strong>后</strong></td><td>提取目标文件/命令 → 发 RUNNING 状态</td><td><code>status/RUNNING</code></td><td>否</td></tr>
+            <tr><td><strong>stop</strong></td><td>一轮任务完成</td><td>发 DONE 状态</td><td><code>status/DONE</code></td><td>否</td></tr>
+        </table>
+        <p><strong>状态流转效果</strong>：用户提问 → BOX 显示 <code>THINKING</code>（思考）→ 每次工具调用 → 显示 <code>RUNNING + 工具名</code>（工作中）→ 任务结束 → 显示 <code>DONE</code>（完成）。ATK BOX 的 AI 云朵表情随之切换。</p>
+
+        <h4>A.2 pre_tool 的审批拦截（核心安全能力）</h4>
+        <p><code>pre_tool</code> 事件对<strong>写操作工具做拦截</strong>（<code>matcher: "Write|Edit|NotebookEdit"</code>）：</p>
+        <ol>
+            <li>提取 <code>file_path</code>（或 notebook_path）和 <code>content</code> 前 200 字作为预览</li>
+            <li>向 daemon 发 <code>approval</code> 请求（<strong>阻塞等待</strong>用户在 BOX 上批准/拒绝）</li>
+            <li>根据回执输出 Claude Code 的权限决策 JSON：
+                <ul>
+                    <li>批准 → <code>{"permissionDecision": "allow"}</code>（工具正常执行）</li>
+                    <li>拒绝 → <code>{"permissionDecision": "deny"}</code>（工具被阻止）</li>
+                </ul>
+            </li>
+        </ol>
+        <div class="callout info">
+            <strong>安全机制</strong>
+            这意味着：<strong>AI 每次要写文件，都会先在你的硬件盒子上弹出审批</strong>，你点"允许"它才写。daemon 侧还会按文件路径推断风险等级（test→低，config/settings→中，其余→高）。
+        </div>
+
+        <h4>A.3 AskUserQuestion 监测</h4>
+        <p>当 Claude 调用内置的 <code>AskUserQuestion</code> 工具时，hook 会<strong>监测但不拦截</strong>：把问题数量记到日志、发一条 RUNNING 状态，然后放行（不输出 JSON = 默认 allow）。这是为将来"把 Claude 的提问自动转到硬件"预留的探针。</p>
+
+        <h4>A.4 实验事件探针</h4>
+        <p>代码里还有一批实验性事件处理（<code>notify_agent_input</code>、<code>elicitation</code>、<code>permission_request</code> 等），作用是<strong>探测 AskUserQuestion 到底触发哪个 hook</strong>——把完整 <code>hook_input</code> 记进 daemon 日志和 stderr，不干预流程。属于研发调试用，正式功能不依赖。</p>
+
+        <h4>A.5 Hook 安装（install_hooks.py）</h4>
+        <ul>
+            <li>把 4 个 hook（UserPromptSubmit / PreToolUse / PostToolUse / Stop）<strong>合并</strong>进 <code>~/.claude/settings.json</code>，保留用户已有字段</li>
+            <li>安装前自动备份为 <code>settings.json.backup</code></li>
+            <li><code>--uninstall</code> 可干净移除</li>
+            <li><strong>PyInstaller 兼容</strong>：打包成 exe 后，<code>__file__</code> 指向临时目录 <code>_MEIxxx</code>（exe 退出即消失）。安装脚本会把 <code>hook_client.py</code> 复制到永久目录 <code>~/.codebuddy_bridge/</code>，再把该永久路径写进 settings，避免 exe 关闭后 hook 失效。</li>
+        </ul>
+
+        <h3>B. MCP 工具服务（mcp_atkbox_server.py）</h3>
+        <p><strong>定位</strong>：一个 <strong>MCP stdio server</strong>，向 Claude 暴露一个可主动调用的工具 <code>ask_on_atkbox</code>。与 Hook 相反，这是 Claude "想问就问"的主动通道。</p>
+        <div class="callout warn">
+            <strong>⚠️ 再次强调</strong>
+            MCP server <strong>不持有串口</strong>，它也是 daemon 的客户端，收到调用后连 47100 转发 <code>decision</code> 请求。
+        </div>
+
+        <h4>B.1 暴露的工具：ask_on_atkbox</h4>
+        <table>
+            <tr><th>项</th><th>规格</th></tr>
+            <tr><td>功能</td><td>在 ATK BOX 硬件上显示一道选择题，等用户触摸选择</td></tr>
+            <tr><td>入参</td><td><code>title</code>（≤31 字符）、<code>options</code>（1-4 项，每项 ≤23 字符）</td></tr>
+            <tr><td>返回</td><td>用户所选项的索引 0-3 及文本；255 = 取消/超时</td></tr>
+            <tr><td>超时</td><td>40 秒</td></tr>
+            <tr><td>语言</td><td><strong>仅英文</strong>（中文触发编码 bug）</td></tr>
+        </table>
+
+        <h4>B.2 实现的 MCP 协议方法</h4>
+        <p>server 是一个 stdin 逐行读 JSON-RPC 的循环，实现了标准 MCP 握手：</p>
+        <table>
+            <tr><th>方法</th><th>作用</th></tr>
+            <tr><td><code>initialize</code></td><td>返回协议版本 <code>2024-11-05</code>、serverInfo（name=atkbox）、capabilities</td></tr>
+            <tr><td><code>tools/list</code></td><td>列出唯一工具 <code>ask_on_atkbox</code> 及其 inputSchema（title + options 的类型约束）</td></tr>
+            <tr><td><code>tools/call</code></td><td>执行调用：连 daemon 发 decision → 拿 chosen → 组装成人类可读的 content 文本返回</td></tr>
+            <tr><td>未知方法</td><td>返回 <code>-32601 Method not found</code></td></tr>
+        </table>
+
+        <h4>B.3 调用链</h4>
+        <pre>Claude 决定问用户 → tools/call ask_on_atkbox(title, options)
+  → send_decision_to_daemon() 连 127.0.0.1:47100
+    → daemon 发 0x0A → Dongle → BOX 显示 Screen 7
+      → 用户触摸 → BOX 发 0x0B → daemon → MCP
+        → 返回 "User chose option N: &lt;文本&gt;" 给 Claude</pre>
+
+        <h4>B.4 MCP 安装（install_mcp_atkbox.py）</h4>
+        <ul>
+            <li>写入 <code>~/.claude.json</code> 的 <code>mcpServers</code> 字段（Claude Code 2.1.206+ 实际读取位置）</li>
+            <li>配置形如 <code>{"atkbox": {"command":"python","args":[server路径],"type":"stdio"}}</code></li>
+            <li>同样有 <strong>PyInstaller 永久化</strong>逻辑：把 <code>mcp_atkbox_server.py</code> 复制到 <code>~/.codebuddy_bridge/</code></li>
+            <li>安装后需<strong>完全重启 Claude Code</strong>（exit 所有窗口再启动），<code>/mcp</code> 验证工具出现</li>
+        </ul>
+
+        <h3>C. Hook vs MCP 对比</h3>
+        <table>
+            <tr><th>维度</th><th>Hook (hook_client.py)</th><th>MCP (mcp_atkbox_server.py)</th></tr>
+            <tr><td>触发方</td><td>Claude 运行事件（被动）</td><td>Claude 主动调用工具</td></tr>
+            <tr><td>主要能力</td><td>状态可视化 + 写操作审批拦截</td><td>决策选择题</td></tr>
+            <tr><td>生命周期</td><td>每事件一次性进程</td><td>常驻 stdio server</td></tr>
+            <tr><td>阻塞</td><td>仅审批阻塞</td><td>决策调用阻塞（≤40s）</td></tr>
+            <tr><td>配置位置</td><td><code>~/.claude/settings.json</code> hooks</td><td><code>~/.claude.json</code> mcpServers</td></tr>
+            <tr><td>与 daemon 关系</td><td>客户端（发 status/approval）</td><td>客户端（发 decision）</td></tr>
+        </table>
+
+        <h2 class="section" id="files">四、PC 端文件清单</h2>
+        <h3>4.1 核心运行时</h3>
+        <table>
+            <tr><th>文件</th><th>角色</th><th>说明</th></tr>
+            <tr><td><code>atkbox_daemon.py</code></td><td>守护进程</td><td>独占串口 + IPC 服务 + 后台推送，系统核心</td></tr>
+            <tr><td><code>serial_manager.py</code></td><td>串口层</td><td>发帧、CRC 校验、5s 冷却重连</td></tr>
+            <tr><td><code>protocol_frames.py</code></td><td>协议层</td><td>帧构造/解析，对齐固件 espnow_protocol.h</td></tr>
+            <tr><td><code>config_manager.py</code></td><td>配置</td><td>串口号/端口/间隔持久化</td></tr>
+        </table>
+        <h3>4.2 客户端</h3>
+        <table>
+            <tr><th>文件</th><th>角色</th><th>说明</th></tr>
+            <tr><td><code>hook_client.py</code></td><td>Claude Hook 瘦客户端</td><td>4 类事件：prompt/pre/post/stop</td></tr>
+            <tr><td><code>mcp_atkbox_server.py</code></td><td>MCP 工具</td><td>提供 ask_on_atkbox 决策工具</td></tr>
+            <tr><td><code>realtime_monitor.py</code></td><td>状态推送</td><td>提取 Token/Git/AI 状态</td></tr>
+            <tr><td><code>ask_user_via_box.py</code></td><td>决策交互</td><td>直连串口（旧版，注意抢串口）</td></tr>
+            <tr><td><code>guess_number_game.py</code></td><td>示例游戏</td><td>猜数字，走 daemon IPC</td></tr>
+        </table>
+        <h3>4.3 GUI 与打包</h3>
+        <table>
+            <tr><th>文件</th><th>角色</th><th>说明</th></tr>
+            <tr><td><code>codebuddy_bridge_gui.py</code></td><td>GUI 主程序</td><td>Tkinter，托管 daemon + 配置 + 日志</td></tr>
+            <tr><td><code>build_exe.py</code></td><td>打包脚本</td><td>PyInstaller → dist/CodeBuddyBridge.exe</td></tr>
+            <tr><td><code>install_hooks.py</code></td><td>Hook 安装</td><td>写入 Claude Code hooks</td></tr>
+            <tr><td><code>install_mcp_atkbox.py</code></td><td>MCP 安装</td><td>注册 MCP server</td></tr>
+        </table>
+        <div class="callout info">
+            <strong>打包产物</strong>
+            <code>dist/CodeBuddyBridge.exe</code> — 独立可执行（约 10MB），无需 Python 环境，图形界面一键启动 daemon。
+        </div>
+
+        <h2 class="section" id="protocol">五、通信协议规范</h2>
+        <h3>5.1 串口帧格式（PC ↔ Dongle）</h3>
+        <pre>┌──────┬──────┬─────────┬─────────────┬───────────┐
+│ 0xA5 │ 0x5A │ len(1B) │  payload    │ outer_crc8│
+└──────┴──────┴─────────┴─────────────┴───────────┘
+                          └─ ESP-NOW payload (含 inner_crc8)</pre>
+        <ul>
+            <li><strong>双层 CRC8</strong>（多项式 0x07）：外层校验串口，内层校验 ESP-NOW 载荷</li>
+            <li><strong>帧间延迟</strong>：连续发送需间隔 0.5s，Dongle 转发无缓冲</li>
+        </ul>
+        <h3>5.2 帧类型总表</h3>
+        <table>
+            <tr><th>帧类型</th><th>值</th><th>方向</th><th>用途</th></tr>
+            <tr><td>KEY</td><td>0x01</td><td>BOX→PC</td><td>按键事件（HID）</td></tr>
+            <tr><td>AUDIO</td><td>0x02</td><td>BOX→PC</td><td>音频数据（16kHz 单声道）</td></tr>
+            <tr><td>FEC</td><td>0x03</td><td>BOX→PC</td><td>音频 XOR 冗余</td></tr>
+            <tr><td>PAIR/ACK</td><td>0x04/05</td><td>双向</td><td>配对握手</td></tr>
+            <tr><td>HEARTBEAT</td><td>0x06</td><td>双向</td><td>心跳</td></tr>
+            <tr><td>TOKEN_STATUS</td><td>0x07</td><td>PC→BOX</td><td>Token 用量（≤5）</td></tr>
+            <tr><td>PROJECT_STATUS</td><td>0x08</td><td>PC→BOX</td><td>项目进度（≤6）</td></tr>
+            <tr><td>AI_STATE</td><td>0x09</td><td>PC→BOX</td><td>AI 情绪（云朵表情）</td></tr>
+            <tr><td>DECISION_REQ</td><td>0x0A</td><td>PC→BOX</td><td>决策请求（≤4 选项）</td></tr>
+            <tr><td>DECISION_REPLY</td><td>0x0B</td><td>BOX→PC</td><td>决策回执（0-3/0xFF）</td></tr>
+            <tr><td>AGENT_STATUS</td><td>0x0C</td><td>PC→BOX</td><td>Agent 工作状态</td></tr>
+            <tr><td>APPROVAL_REQ</td><td>0x0D</td><td>PC→BOX</td><td>审批请求</td></tr>
+            <tr><td>APPROVAL_REPLY</td><td>0x0E</td><td>BOX→PC</td><td>审批回执</td></tr>
+        </table>
+
+        <h2 class="section" id="usage">六、典型使用流程</h2>
+        <h3>6.1 启动系统</h3>
+        <pre># 方式 A：GUI（推荐给最终用户）
+dist/CodeBuddyBridge.exe          # 双击，图形界面启动 daemon
+
+# 方式 B：命令行（开发调试）
+python atkbox_daemon.py --port COM6</pre>
+        <h3>6.2 决策交互（AI → 用户）</h3>
+        <pre>Claude 调用 MCP 工具 ask_on_atkbox
+  → mcp_atkbox_server.py 连 47100
+    → daemon 发 0x0A 决策帧
+      → Dongle → ESP-NOW → BOX 显示 Screen 7 决策界面
+        → 用户触摸选择
+          → BOX 发 0x0B 回执 → daemon → MCP → Claude 拿到 chosen 索引</pre>
+        <h3>6.3 状态可视化（用户 → BOX）</h3>
+        <pre>realtime_monitor.py 或 daemon 后台线程
+  → 读 ~/.claude/ 的 Token/项目/AI 状态
+    → 每 30s 推送 0x07/0x08/0x09 帧
+      → BOX 屏幕实时更新</pre>
+
+        <h2 class="section" id="pitfalls">七、已知陷阱（踩坑记录）</h2>
+        <table>
+            <tr><th>#</th><th>问题</th><th>原因</th><th>解决</th></tr>
+            <tr><td>1</td><td><code>PermissionError(13)</code></td><td>多进程抢串口</td><td>统一走 daemon IPC</td></tr>
+            <tr><td>2</td><td>MCP 能用但游戏连不上</td><td>daemon 没启动</td><td>先启 daemon 或开 GUI</td></tr>
+            <tr><td>3</td><td>中文 surrogates 错误</td><td>MCP 编码 bug</td><td>标题/选项只用英文</td></tr>
+            <tr><td>4</td><td>控制台 emoji 崩溃</td><td>Windows GBK</td><td>强制 UTF-8 wrapper</td></tr>
+            <tr><td>5</td><td>Frame length mismatch</td><td>缺 seq_num</td><td>状态帧需 3 字节头</td></tr>
+            <tr><td>6</td><td>Stuck in S_CRC</td><td>缺外层 CRC</td><td>wrap_frame 追加 crc8</td></tr>
+            <tr><td>7</td><td>只有首帧显示</td><td>无帧间延迟</td><td>发送加 sleep(0.5)</td></tr>
+        </table>
+
+        <h2 class="section" id="docs">八、相关文档</h2>
+        <ul>
+            <li><code>pc_tools/CLAUDE.md</code> — PC 工具详细说明</li>
+            <li><code>CLAUDE.md</code> — ATK BOX 固件说明</li>
+            <li><code>上位机开发文档.md</code> — 协议帧格式与 Python 示例</li>
+            <li><code>espnow_protocol.h</code> — C 结构体定义（固件端）</li>
+            <li><code>../../dongle_firmware/README.md</code> — Dongle 固件文档</li>
+        </ul>
+
+        <h2 class="section" id="progress">九、开发进度总览</h2>
+        <h3>里程碑时间线</h3>
+        <table>
+            <tr><th>日期</th><th>阶段</th><th>完成内容</th><th>验证状态</th></tr>
+            <tr><td>2026-08-20</td><td>K10 原型完成</td><td>51_mic_wifi 固件（6 界面 + ESP-NOW + 音频流）</td><td>✅ K10 验证通过</td></tr>
+            <tr><td>2026-08-27</td><td>ATK BOX 移植</td><td>硬件适配 + 7 界面 + 触摸驱动</td><td>✅ 触摸/显示/按键全通过</td></tr>
+            <tr><td>2026-08-31</td><td>交互定稿</td><td>移除触摸滑动翻页，改由按键 B 短按</td><td>✅ UX 最终定稿</td></tr>
+            <tr><td>2026-09-07</td><td>PC 集成</td><td>CodeBuddy Bridge GUI + Hook + MCP</td><td>✅ daemon/Hook/MCP 全通</td></tr>
+            <tr><td>2026-09-09</td><td>游戏开发演示</td><td>交互式游戏开发工具（猜数字 + 2048）</td><td>✅ ATK BOX 交互验证</td></tr>
+        </table>
+
+        <h3>功能完成度 · ATK BOX 固件</h3>
+        <table>
+            <tr><th>模块</th><th>功能</th><th>状态</th><th>备注</th></tr>
+            <tr><td rowspan="4"><strong>显示</strong></td><td>ST7789 LCD 驱动</td><td>✅ 100%</td><td>240×320 @ 60fps</td></tr>
+            <tr><td>7 界面 LVGL UI</td><td>✅ 100%</td><td>界面 0-6 全部实现</td></tr>
+            <tr><td>Decision UI (界面 7)</td><td>✅ 100%</td><td>PC 决策交互已验证</td></tr>
+            <tr><td>SD 图片加载</td><td>⚠️ 90%</td><td>路径验证待完善</td></tr>
+            <tr><td rowspan="3"><strong>触摸</strong></td><td>CHSC5432 驱动</td><td>✅ 100%</td><td>坐标校准完成</td></tr>
+            <tr><td>界面内点击交互</td><td>✅ 100%</td><td>详情卡片/AI 情绪/按钮</td></tr>
+            <tr><td>TouchTest 界面</td><td>✅ 100%</td><td>调试工具正常</td></tr>
+            <tr><td rowspan="4"><strong>音频</strong></td><td>ES8311 录音</td><td>✅ 100%</td><td>16kHz 单声道</td></tr>
+            <tr><td>ESP-NOW 音频流</td><td>✅ 100%</td><td>发送到 Dongle 稳定</td></tr>
+            <tr><td>喇叭播放</td><td>⚠️ 50%</td><td>硬件支持，软件未用</td></tr>
+            <tr><td>提示音</td><td>❌ 0%</td><td>计划未实现</td></tr>
+            <tr><td rowspan="4"><strong>通信</strong></td><td>ESP-NOW 配对</td><td>✅ 100%</td><td>每 5s 广播 PAIR 帧</td></tr>
+            <tr><td>接收 PC 状态帧</td><td>✅ 100%</td><td>0x07/0x08/0x09 已验证</td></tr>
+            <tr><td>接收决策请求</td><td>✅ 100%</td><td>0x0A → 界面 7 → 0x0B</td></tr>
+            <tr><td>发送决策回执</td><td>✅ 100%</td><td>触摸选择 → 回传索引</td></tr>
+        </table>
+
+        <h3>功能完成度 · PC 端工具</h3>
+        <table>
+            <tr><th>模块</th><th>功能</th><th>状态</th><th>备注</th></tr>
+            <tr><td rowspan="3"><strong>daemon</strong></td><td>串口独占 + IPC</td><td>✅ 100%</td><td>核心稳定运行</td></tr>
+            <tr><td>Token/Project 推送</td><td>✅ 100%</td><td>30s 间隔自动推送</td></tr>
+            <tr><td>决策/审批阻塞</td><td>✅ 100%</td><td>等待 BOX 回执正常</td></tr>
+            <tr><td rowspan="3"><strong>Hook</strong></td><td>4 事件监听</td><td>✅ 100%</td><td>prompt/pre/post/stop</td></tr>
+            <tr><td>写操作审批拦截</td><td>✅ 100%</td><td>Write/Edit/NotebookEdit</td></tr>
+            <tr><td>状态可视化推送</td><td>✅ 100%</td><td>THINKING/RUNNING/DONE</td></tr>
+            <tr><td rowspan="2"><strong>MCP</strong></td><td>ask_on_atkbox 工具</td><td>✅ 100%</td><td>Claude 主动调用决策</td></tr>
+            <tr><td>安装/卸载脚本</td><td>✅ 100%</td><td>PyInstaller 永久化</td></tr>
+            <tr><td rowspan="2"><strong>GUI</strong></td><td>CodeBuddy Bridge</td><td>✅ 100%</td><td>Tkinter 桌面应用</td></tr>
+            <tr><td>Hook 管理集成</td><td>✅ 100%</td><td>一键安装/卸载</td></tr>
+        </table>
+
+        <h3>已知问题（Bug Tracker）</h3>
+        <table>
+            <tr><th>#</th><th>模块</th><th>问题</th><th>优先级</th><th>状态</th></tr>
+            <tr><td>1</td><td>MCP</td><td>中文标题/选项触发编码错误</td><td>P2</td><td>🔴 Open</td></tr>
+            <tr><td>2</td><td>SD 卡</td><td>图片路径扫描不完整</td><td>P3</td><td>🟡 Minor</td></tr>
+            <tr><td>3</td><td>Hook</td><td>AskUserQuestion 不触发 hook</td><td>P4</td><td>📝 Wontfix</td></tr>
+            <tr><td>4</td><td>控制台</td><td>Windows GBK 不支持 emoji</td><td>P3</td><td>✅ Fixed</td></tr>
+            <tr><td>5</td><td>串口</td><td>多进程抢占 PermissionError</td><td>P1</td><td>✅ Fixed</td></tr>
+            <tr><td>6</td><td>帧协议</td><td>缺 seq_num 导致校验失败</td><td>P1</td><td>✅ Fixed</td></tr>
+            <tr><td>7</td><td>帧协议</td><td>无帧间延迟导致丢帧</td><td>P1</td><td>✅ Fixed</td></tr>
+        </table>
+
+        <h3>待办事项（Roadmap）</h3>
+        <div class="cards">
+            <div class="card">
+                <h4>短期（1-2 周）</h4>
+                <p>SD 路径修正 · MCP 中文支持 · Dongle LED 增强 · 提示音实现 · 多窗口聚合</p>
+            </div>
+            <div class="card">
+                <h4>中期（1 个月）</h4>
+                <p>Agent 审批 UI · 工作流可视化 · 触摸长按菜单 · OTA 升级 · Windows 安装包</p>
+            </div>
+            <div class="card">
+                <h4>远期（3 个月+）</h4>
+                <p>Xiaozhi AI 云集成 · 多语言 · Web Dashboard · 移动端 App · 插件市场</p>
+            </div>
+        </div>
+
+        <h2 class="section" id="highlights">十、技术亮点与创新</h2>
+        <div class="cards">
+            <div class="card">
+                <h4>1. 双向硬件交互</h4>
+                <p>上行状态可视化 + 下行决策审批。降低注意力切换成本，写文件前物理设备批准，云朵表情跟随 AI 节奏。</p>
+            </div>
+            <div class="card">
+                <h4>2. daemon + 多客户端</h4>
+                <p>单一守护进程持有串口，所有工具通过 IPC 共享。Hook/MCP/监控/游戏同时运行互不干扰。</p>
+            </div>
+            <div class="card">
+                <h4>3. PyInstaller 永久化</h4>
+                <p>检测 frozen 标志，自动复制脚本到永久目录，exe 可关闭而 hook 持久生效。</p>
+            </div>
+            <div class="card">
+                <h4>4. 交互式游戏开发</h4>
+                <p>用硬件做设计工具：6 步触摸选择生成完整 2048 游戏，全流程 &lt;2 分钟零手动编码。</p>
+            </div>
+        </div>
+
+        <footer>
+            CodeBuddy AI BOX 完整系统架构文档 · 生成于 2026-09-09 · 正点原子 ESP32-S3 BOX 移植版 · MIT License
+        </footer>
+    </main>
+</div>
+</body>
+</html>

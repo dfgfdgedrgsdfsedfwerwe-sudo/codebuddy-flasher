@@ -1,0 +1,479 @@
+/**
+ * @file 51_mic_espnow.ino
+ * @brief CodeBuddy P1: I2S 麦克风采集 + ESP-NOW 音频发送
+ *
+ * 数据流: K10 板载 I2S 麦克风 -> 采集 16kHz/16bit/mono PCM
+ *         -> ESP-NOW 发送到 Dongle (USB Audio 转发到 PC)
+ *
+ * 按键 A (P5): 开始/停止发流 (边沿检测)
+ * LCD: 显示 ESP-NOW 状态 / Dongle MAC / 发流状态 / 已发包数
+ *
+ * @date 2026-08-18
+ */
+
+#include <Arduino.h>
+#include <WiFi.h>
+#include <esp_now.h>
+#include <esp_wifi.h>
+#include <Wire.h>
+#include "driver/i2s.h"
+#include "Lcd_handler.hpp"
+#include "initBoard.h"
+#include "espnow_protocol.h"
+
+// ======================= ESP-NOW 配置 =======================
+// Dongle MAC 地址 (COM6): e0:72:a1:d4:8f:e0
+static uint8_t dongle_mac[6] = {0xe0, 0x72, 0xa1, 0xd4, 0x8f, 0xe0};
+static const int ESPNOW_CHANNEL = 1;  // 必须与 Dongle 一致
+// =======================================================
+
+// ======================= I2S 麦克风引脚 (官方 unihiker_k10 验证) =======
+#define MIC_MCLK   3    // I2S MCLK
+#define MIC_BCLK   0    // I2S BCLK (BLCK)
+#define MIC_WS     38   // I2S WS   (LRCK)
+#define MIC_DIN    39   // I2S 数据输入 (DSIN, 麦克风)
+#define MIC_DOUT   45   // I2S 数据输出 (功放, 共用总线, 本例不写)
+
+#define SAMPLE_RATE  16000
+// 立体声交织流中麦克风所在声道: 0=左, 1=右。若录音是静音/纯噪声, 翻转此值重测。
+#define MIC_CHANNEL_OFFSET  0
+// =======================================================
+
+static K10_Lcd tft;
+
+// I2S 缓冲: AUDIO_SAMPLES_PER_FRAME(64) 个立体声帧
+static int16_t stereoBuf[AUDIO_SAMPLES_PER_FRAME * 2];
+static int16_t monoBuf[AUDIO_SAMPLES_PER_FRAME];
+
+static bool     streaming      = false;  // 是否正在发流
+static bool     prev_a         = false;  // 按键 A 上一帧状态
+static bool     prev_b         = false;  // 按键 B 上一帧状态
+static uint32_t press_time_a   = 0;      // 按键 A 按下时间戳
+static uint32_t press_time_b   = 0;      // 按键 B 按下时间戳
+static uint32_t last_repeat_b  = 0;      // 按键 B 上次重复发送时间
+static uint32_t packetCount    = 0;      // 已发包数
+static uint32_t sendFailCount  = 0;      // 发送失败计数
+static const uint32_t LONG_PRESS_MS = 600;  // 长按阈值 600ms
+static const uint32_t REPEAT_INTERVAL_MS = 100;  // 长按重复间隔 100ms
+static bool     lcdDirty       = true;   // 需要重绘 LCD
+static uint8_t  audio_seq_num  = 0;      // 音频序列号
+static bool     espnow_ready   = false;  // ESP-NOW 初始化状态
+
+// ESP-NOW 发送回调
+static void espnow_send_cb(const uint8_t *mac, esp_now_send_status_t status) {
+    if (status != ESP_NOW_SEND_SUCCESS) {
+        sendFailCount++;
+    }
+}
+
+// -------- I2C 扫描 --------
+static void i2c_scan(int sda, int scl) {
+    Wire.begin(sda, scl);
+    Serial.printf("\n=== I2C Scan on SDA=%d SCL=%d ===\n", sda, scl);
+    int count = 0;
+    for (uint8_t addr = 1; addr < 127; addr++) {
+        Wire.beginTransmission(addr);
+        if (Wire.endTransmission() == 0) {
+            Serial.printf("  Found device at 0x%02X\n", addr);
+            count++;
+        }
+    }
+    Serial.printf("Total: %d device(s)\n", count);
+}
+
+// -------- ES7243E ADC 初始化 (I2C 寄存器配置) --------
+static bool es7243e_init(uint8_t i2c_addr) {
+    Serial.printf("Initializing ES7243E at 0x%02X...\n", i2c_addr);
+
+    // ESPHome 序列 (45个寄存器写入)
+    const uint8_t init_seq[][2] = {
+        {0x01, 0x3A}, {0x00, 0x80}, {0xF9, 0x00}, {0x04, 0x02}, {0x04, 0x01},
+        {0xF9, 0x01}, {0x00, 0x1E}, {0x01, 0x00}, {0x02, 0x00}, {0x03, 0x20},
+        {0x04, 0x01}, {0x0D, 0x00}, {0x05, 0x00}, {0x06, 0x03}, {0x07, 0x00},
+        {0x08, 0xFF}, {0x09, 0xCA}, {0x0A, 0x85}, {0x0B, 0x00}, {0x0E, 0xBF},
+        {0x0F, 0x80}, {0x14, 0x0C}, {0x15, 0x0C}, {0x17, 0x02}, {0x18, 0x26},
+        {0x19, 0x77}, {0x1A, 0xF4}, {0x1B, 0x66}, {0x1C, 0x44}, {0x1E, 0x00},
+        {0x1F, 0x0C}, {0x20, 0x1A}, {0x21, 0x1A}, {0x00, 0x80}, {0x01, 0x3A},
+        {0x16, 0x3F}, {0x16, 0x00}, {0xF9, 0x00}, {0x04, 0x01}, {0x17, 0x01},
+        {0x20, 0x1E}, {0x21, 0x1E}, {0x00, 0x80}, {0x01, 0x3A}, {0x16, 0x3F},
+        {0x16, 0x00}
+    };
+
+    for (int i = 0; i < sizeof(init_seq) / sizeof(init_seq[0]); i++) {
+        Wire.beginTransmission(i2c_addr);
+        Wire.write(init_seq[i][0]);
+        Wire.write(init_seq[i][1]);
+        if (Wire.endTransmission() != 0) {
+            Serial.printf("  ES7243E write FAILED at step %d (reg 0x%02X)\n", i, init_seq[i][0]);
+            return false;
+        }
+        delayMicroseconds(10);
+    }
+    Serial.println("  ES7243E init OK");
+    return true;
+}
+
+// -------- I2S 初始化 --------
+static void mic_i2s_init() {
+    i2s_config_t cfg = {
+        .mode = (i2s_mode_t)(I2S_MODE_MASTER | I2S_MODE_RX | I2S_MODE_TX),
+        .sample_rate = SAMPLE_RATE,
+        .bits_per_sample = I2S_BITS_PER_SAMPLE_16BIT,
+        .channel_format = I2S_CHANNEL_FMT_RIGHT_LEFT,
+        .communication_format = I2S_COMM_FORMAT_STAND_I2S,
+        .intr_alloc_flags = ESP_INTR_FLAG_LEVEL1,
+        .dma_buf_count = 3,
+        .dma_buf_len = 300,
+        .use_apll = false,
+        .tx_desc_auto_clear = true,
+        .fixed_mclk = 0,
+        .mclk_multiple = I2S_MCLK_MULTIPLE_DEFAULT,
+        .bits_per_chan = I2S_BITS_PER_CHAN_16BIT,
+    };
+    i2s_pin_config_t pins = {
+        .mck_io_num   = MIC_MCLK,
+        .bck_io_num   = MIC_BCLK,
+        .ws_io_num    = MIC_WS,
+        .data_out_num = MIC_DOUT,
+        .data_in_num  = MIC_DIN,
+    };
+    i2s_driver_install(I2S_NUM_0, &cfg, 0, NULL);
+    i2s_set_pin(I2S_NUM_0, &pins);
+    i2s_zero_dma_buffer(I2S_NUM_0);
+}
+
+// -------- ESP-NOW 初始化 --------
+static bool espnow_init() {
+    // 设置 WiFi 为 STA 模式并设置信道
+    WiFi.mode(WIFI_STA);
+    WiFi.disconnect();
+
+    // 设置信道 (必须在 ESP-NOW init 之前)
+    esp_wifi_set_channel(ESPNOW_CHANNEL, WIFI_SECOND_CHAN_NONE);
+
+    Serial.printf("WiFi STA mode, Channel: %d\n", ESPNOW_CHANNEL);
+    Serial.printf("K10 MAC: %s\n", WiFi.macAddress().c_str());
+
+    // 初始化 ESP-NOW
+    if (esp_now_init() != ESP_OK) {
+        Serial.println("ESP-NOW init FAILED");
+        return false;
+    }
+    Serial.println("ESP-NOW init OK");
+
+    // 注册发送回调
+    esp_now_register_send_cb(espnow_send_cb);
+
+    // 添加 Dongle 为 peer
+    esp_now_peer_info_t peerInfo = {};
+    memcpy(peerInfo.peer_addr, dongle_mac, 6);
+    peerInfo.channel = ESPNOW_CHANNEL;
+    peerInfo.encrypt = false;
+
+    if (esp_now_add_peer(&peerInfo) != ESP_OK) {
+        Serial.println("Add peer FAILED");
+        return false;
+    }
+
+    Serial.printf("Peer added: %02X:%02X:%02X:%02X:%02X:%02X\n",
+        dongle_mac[0], dongle_mac[1], dongle_mac[2],
+        dongle_mac[3], dongle_mac[4], dongle_mac[5]);
+
+    return true;
+}
+
+// -------- LCD 显示 --------
+static void drawStatus() {
+    tft.fillScreen(TFT_BLACK);
+    tft.setTextColor(TFT_WHITE, TFT_BLACK);
+
+    // 标题
+    tft.setTextSize(2);
+    tft.setCursor(10, 10);
+    tft.print("CodeBuddy P1");
+
+    // ESP-NOW 信息
+    tft.setTextSize(1);
+    tft.setCursor(10, 45);
+    if (espnow_ready) {
+        tft.setTextColor(TFT_GREEN, TFT_BLACK);
+        tft.print("ESP-NOW OK");
+    } else {
+        tft.setTextColor(TFT_RED, TFT_BLACK);
+        tft.print("ESP-NOW INIT FAILED");
+    }
+
+    tft.setTextColor(TFT_WHITE, TFT_BLACK);
+    tft.setCursor(10, 60);
+    tft.printf("CH:%d", ESPNOW_CHANNEL);
+
+    tft.setCursor(10, 75);
+    tft.printf("->%02X:%02X:%02X:%02X:%02X:%02X",
+        dongle_mac[0], dongle_mac[1], dongle_mac[2],
+        dongle_mac[3], dongle_mac[4], dongle_mac[5]);
+
+    // 发流状态 (大字)
+    tft.setTextSize(3);
+    tft.setCursor(10, 120);
+    if (streaming) {
+        tft.setTextColor(TFT_RED, TFT_BLACK);
+        tft.print("REC *");
+    } else {
+        tft.setTextColor(TFT_CYAN, TFT_BLACK);
+        tft.print("IDLE");
+    }
+
+    // 包计数
+    tft.setTextColor(TFT_WHITE, TFT_BLACK);
+    tft.setTextSize(2);
+    tft.setCursor(10, 175);
+    tft.printf("TX:%u", packetCount);
+
+    tft.setCursor(10, 200);
+    if (sendFailCount > 0) {
+        tft.setTextColor(TFT_YELLOW, TFT_BLACK);
+    }
+    tft.printf("FAIL:%u", sendFailCount);
+
+    // 提示
+    tft.setTextSize(1);
+    tft.setTextColor(TFT_DARKGREY, TFT_BLACK);
+    tft.setCursor(10, 300);
+    tft.print("Key A: start/stop");
+}
+
+void setup() {
+    Serial.begin(115200);
+    delay(1000);  // 短延迟等待串口稳定
+    Serial.println("\n\n=== CodeBuddy P1: Mic -> ESP-NOW ===");
+
+    init_board();  // 扩展芯片 / 背光 / 按键
+    tft.init();
+    tft.setRotation(0);
+
+    Serial.println("\n>>> I2C scan <<<");
+    // 扫描主 I2C 总线, 找 ES7243E (麦克风 ADC)
+    i2c_scan(47, 48);
+
+    // 在主总线初始化 ES7243E
+    Wire.begin(47, 48);
+    es7243e_init(0x11);
+
+    // 初始化 ESP-NOW
+    espnow_ready = espnow_init();
+
+    // 初始化 I2S 麦克风
+    mic_i2s_init();
+
+    lcdDirty = true;
+    Serial.println("Setup complete. Press Key A to start streaming.");
+}
+
+void loop() {
+    uint32_t now = millis();
+
+    // --- 按键 A 短按/长按检测 ---
+    static uint32_t lastBtn = 0;
+    if (now - lastBtn >= 10) {
+        lastBtn = now;
+        bool a = (digital_read(eP5_KeyA) == 0);   // 按下返回 0
+
+        if (a && !prev_a) {
+            // 按下：记录时间戳，不发送
+            press_time_a = now;
+        } else if (!a && prev_a) {
+            // 释放：判断短按/长按
+            uint32_t duration = now - press_time_a;
+            uint8_t keycode = 0;
+            const char* key_name = "";
+
+            if (duration < LONG_PRESS_MS) {
+                // 短按：F2 + 切换音频流
+                keycode = 0x3B;  // F2
+                key_name = "F2 (voice input)";
+
+                // 切换发流状态
+                streaming = !streaming;
+                if (streaming) {
+                    i2s_zero_dma_buffer(I2S_NUM_0);
+                    audio_seq_num = 0;
+                    Serial.println("Streaming STARTED");
+                } else {
+                    Serial.printf("Streaming STOPPED. TX=%u FAIL=%u\n",
+                        packetCount, sendFailCount);
+                }
+                lcdDirty = true;
+            } else {
+                // 长按：Esc
+                keycode = 0x29;  // Esc
+                key_name = "Esc (cancel)";
+            }
+
+            // 发送按键帧（先发按下，再发释放）
+            key_frame_t key_frame;
+            key_frame.frame_type = FRAME_TYPE_KEY;
+            key_frame.modifier = 0;
+            memset(key_frame.keycode, 0, 6);
+            key_frame.timestamp = (uint16_t)(now & 0xFFFF);
+            key_frame.seq_num = 0;
+
+            // 发送按下
+            key_frame.action = 1;
+            key_frame.keycode[0] = keycode;
+            key_frame.crc8 = espnow_crc8((uint8_t*)&key_frame, sizeof(key_frame) - 1);
+            esp_now_send(dongle_mac, (uint8_t*)&key_frame, sizeof(key_frame));
+
+            delay(20);  // 短暂延时确保按下被识别
+
+            // 发送释放
+            key_frame.action = 0;
+            key_frame.keycode[0] = 0;
+            key_frame.crc8 = espnow_crc8((uint8_t*)&key_frame, sizeof(key_frame) - 1);
+            esp_now_send(dongle_mac, (uint8_t*)&key_frame, sizeof(key_frame));
+
+            Serial.printf("Key A %s (duration=%ums)\n", key_name, duration);
+        }
+        prev_a = a;
+    }
+
+    // --- 按键 B 短按/长按检测（长按连续删除） ---
+    static uint32_t lastBtnB = 0;
+    if (now - lastBtnB >= 10) {
+        lastBtnB = now;
+        bool b = (digital_read(eP11_KeyB) == 0);   // 按下返回 0
+
+        if (b && !prev_b) {
+            // 按下：记录时间戳
+            press_time_b = now;
+            last_repeat_b = now;
+        } else if (b && prev_b) {
+            // 持续按住：检查是否进入长按重复模式
+            uint32_t duration = now - press_time_b;
+            if (duration >= LONG_PRESS_MS) {
+                // 已进入长按，检查是否该发送下一次 Backspace
+                if (now - last_repeat_b >= REPEAT_INTERVAL_MS) {
+                    last_repeat_b = now;
+
+                    // 发送 Backspace 按键帧
+                    key_frame_t key_frame;
+                    key_frame.frame_type = FRAME_TYPE_KEY;
+                    key_frame.modifier = 0;
+                    memset(key_frame.keycode, 0, 6);
+                    key_frame.timestamp = (uint16_t)(now & 0xFFFF);
+                    key_frame.seq_num = 0;
+
+                    // 发送按下
+                    key_frame.action = 1;
+                    key_frame.keycode[0] = 0x2A;  // Backspace
+                    key_frame.crc8 = espnow_crc8((uint8_t*)&key_frame, sizeof(key_frame) - 1);
+                    esp_now_send(dongle_mac, (uint8_t*)&key_frame, sizeof(key_frame));
+
+                    delay(20);
+
+                    // 发送释放
+                    key_frame.action = 0;
+                    key_frame.keycode[0] = 0;
+                    key_frame.crc8 = espnow_crc8((uint8_t*)&key_frame, sizeof(key_frame) - 1);
+                    esp_now_send(dongle_mac, (uint8_t*)&key_frame, sizeof(key_frame));
+
+                    Serial.println("Key B Backspace (repeat)");
+                }
+            }
+        } else if (!b && prev_b) {
+            // 释放：判断短按还是长按
+            uint32_t duration = now - press_time_b;
+
+            if (duration < LONG_PRESS_MS) {
+                // 短按：发送 Enter
+                key_frame_t key_frame;
+                key_frame.frame_type = FRAME_TYPE_KEY;
+                key_frame.modifier = 0;
+                memset(key_frame.keycode, 0, 6);
+                key_frame.timestamp = (uint16_t)(now & 0xFFFF);
+                key_frame.seq_num = 0;
+
+                // 发送按下
+                key_frame.action = 1;
+                key_frame.keycode[0] = 0x28;  // Enter
+                key_frame.crc8 = espnow_crc8((uint8_t*)&key_frame, sizeof(key_frame) - 1);
+                esp_now_send(dongle_mac, (uint8_t*)&key_frame, sizeof(key_frame));
+
+                delay(20);
+
+                // 发送释放
+                key_frame.action = 0;
+                key_frame.keycode[0] = 0;
+                key_frame.crc8 = espnow_crc8((uint8_t*)&key_frame, sizeof(key_frame) - 1);
+                esp_now_send(dongle_mac, (uint8_t*)&key_frame, sizeof(key_frame));
+
+                Serial.printf("Key B Enter (duration=%ums)\n", duration);
+            } else {
+                // 长按释放：只打印日志，实际删除已在持续按住时发送
+                Serial.printf("Key B released after long press (duration=%ums)\n", duration);
+            }
+        }
+        prev_b = b;
+    }
+
+    // --- 采集 + ESP-NOW 发送 ---
+    if (streaming && espnow_ready) {
+        size_t bytesRead = 0;
+        // 读 AUDIO_SAMPLES_PER_FRAME(64) 个立体声帧
+        i2s_read(I2S_NUM_0, stereoBuf, sizeof(stereoBuf), &bytesRead, portMAX_DELAY);
+        int frames = bytesRead / 4;   // 每帧 = L(2) + R(2) = 4 字节
+
+        // 提取单声道
+        for (int i = 0; i < frames; i++) {
+            monoBuf[i] = stereoBuf[2 * i + MIC_CHANNEL_OFFSET];
+        }
+
+        // 构建音频帧
+        audio_frame_t frame;
+        frame.frame_type = FRAME_TYPE_AUDIO;
+        frame.seq_num = audio_seq_num++;
+        frame.timestamp = (uint16_t)(millis() & 0xFFFF);
+        memcpy(frame.audio_data, monoBuf, AUDIO_PAYLOAD_BYTES);
+        frame.crc8 = espnow_crc8((uint8_t*)&frame, sizeof(frame) - 1);
+
+        // ESP-NOW 发送
+        esp_err_t result = esp_now_send(dongle_mac, (uint8_t*)&frame, sizeof(frame));
+        if (result == ESP_OK) {
+            packetCount++;
+        } else {
+            sendFailCount++;
+            Serial.printf("Send failed: %d\n", result);
+        }
+
+        // --- 诊断: 每秒打印左右声道的峰值/RMS ---
+        static uint32_t diagCnt = 0;
+        if ((diagCnt++ % 250) == 0 && frames > 0) {  // ~250包/秒 @ 16kHz/64samples
+            long sumL = 0, sumR = 0;
+            int16_t maxL = 0, maxR = 0;
+            for (int i = 0; i < frames; i++) {
+                int16_t l = stereoBuf[2 * i];
+                int16_t r = stereoBuf[2 * i + 1];
+                int16_t al = l < 0 ? -l : l;
+                int16_t ar = r < 0 ? -r : r;
+                if (al > maxL) maxL = al;
+                if (ar > maxR) maxR = ar;
+                sumL += (long)l * l;
+                sumR += (long)r * r;
+            }
+            Serial.printf("[DIAG] seq=%d L:pk=%d rms=%.0f R:pk=%d rms=%.0f TX=%u FAIL=%u\n",
+                frame.seq_num, maxL, sqrt((double)sumL / frames),
+                maxR, sqrt((double)sumR / frames),
+                packetCount, sendFailCount);
+        }
+
+        // 每 ~250 包刷新一次显示 (约 1 秒)
+        if (packetCount % 250 == 0) lcdDirty = true;
+    }
+
+    // --- LCD 刷新 (仅需要时) ---
+    if (lcdDirty) {
+        drawStatus();
+        lcdDirty = false;
+    }
+
+    delay(1);  // 避免 watchdog
+}

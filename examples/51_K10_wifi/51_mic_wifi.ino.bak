@@ -1,0 +1,316 @@
+/**
+ * @file 51_mic_wifi.ino (BACKUP - UDP VERSION)
+ * @brief CodeBuddy P1: I2S 麦克风采集 + WiFi UDP 发流
+ *
+ * ⚠️ 此文件已被 51_mic_espnow.ino 替代
+ * ⚠️ Arduino 编译时会编译文件夹内所有 .ino，导致冲突
+ * ⚠️ 已重命名为 .bak 避免冲突
+ *
+ * @date 2026-08-17
+ */
+
+#include <Arduino.h>
+#include <WiFi.h>
+#include <WiFiUdp.h>
+#include <Wire.h>
+#include "driver/i2s.h"
+#include "Lcd_handler.hpp"
+#include "initBoard.h"
+
+// ======================= 用户配置 =======================
+static const char*    WIFI_SSID = "Linksys00666";
+static const char*    WIFI_PASS = "duh1iz5r2n";
+static const char*    PC_IP     = "192.168.132.118";  // PC 局域网 IP
+static const uint16_t PC_PORT   = 3333;                // PC 接收端口
+// =======================================================
+
+// ======================= I2S 麦克风引脚 (官方 unihiker_k10 验证) =======
+#define MIC_MCLK   3    // I2S MCLK
+#define MIC_BCLK   0    // I2S BCLK (BLCK)
+#define MIC_WS     38   // I2S WS   (LRCK)
+#define MIC_DIN    39   // I2S 数据输入 (DSIN, 麦克风)
+#define MIC_DOUT   45   // I2S 数据输出 (功放, 共用总线, 本例不写)
+
+#define SAMPLE_RATE  16000
+// 立体声交织流中麦克风所在声道: 0=左, 1=右。若录音是静音/纯噪声, 翻转此值重测。
+#define MIC_CHANNEL_OFFSET  0
+// =======================================================
+
+// 每个 UDP 包携带的 mono 样本数 (512 样本 * 2 字节 = 1024 字节 < 1446 上限)
+#define MONO_SAMPLES_PER_PACKET  512
+
+static K10_Lcd tft;
+static WiFiUDP  udp;
+
+// I2S 一次读入的立体声缓冲: MONO_SAMPLES_PER_PACKET 个 L/R 帧
+static int16_t stereoBuf[MONO_SAMPLES_PER_PACKET * 2];
+static int16_t monoBuf[MONO_SAMPLES_PER_PACKET];
+
+static bool     streaming   = false;  // 是否正在发流
+static bool     prev_a      = false;  // 按键 A 上一帧状态
+static uint32_t packetCount = 0;      // 已发包数
+static bool     lcdDirty    = true;   // 需要重绘 LCD
+
+// -------- I2C 扫描 --------
+static void i2c_scan(int sda, int scl) {
+    Wire.begin(sda, scl);
+    Serial.printf("\n=== I2C Scan on SDA=%d SCL=%d ===\n", sda, scl);
+    int count = 0;
+    for (uint8_t addr = 1; addr < 127; addr++) {
+        Wire.beginTransmission(addr);
+        if (Wire.endTransmission() == 0) {
+            Serial.printf("  Found device at 0x%02X\n", addr);
+            count++;
+        }
+    }
+    Serial.printf("Total: %d device(s)\n", count);
+}
+
+// -------- ES7243E ADC 初始化 (I2C 寄存器配置) --------
+static bool es7243e_init(uint8_t i2c_addr) {
+    Serial.printf("Initializing ES7243E at 0x%02X...\n", i2c_addr);
+
+    // ESPHome 序列 (45个寄存器写入)
+    const uint8_t init_seq[][2] = {
+        {0x01, 0x3A}, {0x00, 0x80}, {0xF9, 0x00}, {0x04, 0x02}, {0x04, 0x01},
+        {0xF9, 0x01}, {0x00, 0x1E}, {0x01, 0x00}, {0x02, 0x00}, {0x03, 0x20},
+        {0x04, 0x01}, {0x0D, 0x00}, {0x05, 0x00}, {0x06, 0x03}, {0x07, 0x00},
+        {0x08, 0xFF}, {0x09, 0xCA}, {0x0A, 0x85}, {0x0B, 0x00}, {0x0E, 0xBF},
+        {0x0F, 0x80}, {0x14, 0x0C}, {0x15, 0x0C}, {0x17, 0x02}, {0x18, 0x26},
+        {0x19, 0x77}, {0x1A, 0xF4}, {0x1B, 0x66}, {0x1C, 0x44}, {0x1E, 0x00},
+        {0x1F, 0x0C}, {0x20, 0x1A}, {0x21, 0x1A}, {0x00, 0x80}, {0x01, 0x3A},
+        {0x16, 0x3F}, {0x16, 0x00}, {0xF9, 0x00}, {0x04, 0x01}, {0x17, 0x01},
+        {0x20, 0x1E}, {0x21, 0x1E}, {0x00, 0x80}, {0x01, 0x3A}, {0x16, 0x3F},
+        {0x16, 0x00}
+    };
+
+    for (int i = 0; i < sizeof(init_seq) / sizeof(init_seq[0]); i++) {
+        Wire.beginTransmission(i2c_addr);
+        Wire.write(init_seq[i][0]);
+        Wire.write(init_seq[i][1]);
+        if (Wire.endTransmission() != 0) {
+            Serial.printf("  ES7243E write FAILED at step %d (reg 0x%02X)\n", i, init_seq[i][0]);
+            return false;
+        }
+        delayMicroseconds(10);
+    }
+    Serial.println("  ES7243E init OK");
+    return true;
+}
+
+// -------- I2S 初始化 --------
+static void mic_i2s_init() {
+    i2s_config_t cfg = {
+        .mode = (i2s_mode_t)(I2S_MODE_MASTER | I2S_MODE_RX | I2S_MODE_TX),
+        .sample_rate = SAMPLE_RATE,
+        .bits_per_sample = I2S_BITS_PER_SAMPLE_16BIT,
+        .channel_format = I2S_CHANNEL_FMT_RIGHT_LEFT,
+        .communication_format = I2S_COMM_FORMAT_STAND_I2S,
+        .intr_alloc_flags = ESP_INTR_FLAG_LEVEL1,
+        .dma_buf_count = 3,
+        .dma_buf_len = 300,
+        .use_apll = false,
+        .tx_desc_auto_clear = true,
+        .fixed_mclk = 0,
+        .mclk_multiple = I2S_MCLK_MULTIPLE_DEFAULT,
+        .bits_per_chan = I2S_BITS_PER_CHAN_16BIT,
+    };
+    i2s_pin_config_t pins = {
+        .mck_io_num   = MIC_MCLK,
+        .bck_io_num   = MIC_BCLK,
+        .ws_io_num    = MIC_WS,
+        .data_out_num = MIC_DOUT,
+        .data_in_num  = MIC_DIN,
+    };
+    i2s_driver_install(I2S_NUM_0, &cfg, 0, NULL);
+    i2s_set_pin(I2S_NUM_0, &pins);
+    i2s_zero_dma_buffer(I2S_NUM_0);
+}
+
+// -------- LCD 显示 --------
+static void drawStatus() {
+    tft.fillScreen(TFT_BLACK);
+    tft.setTextColor(TFT_WHITE, TFT_BLACK);
+
+    // 标题
+    tft.setTextSize(2);
+    tft.setCursor(10, 10);
+    tft.print("CodeBuddy P1");
+
+    // WiFi 信息
+    tft.setTextSize(1);
+    tft.setCursor(10, 45);
+    if (WiFi.status() == WL_CONNECTED) {
+        tft.setTextColor(TFT_GREEN, TFT_BLACK);
+        tft.print("WiFi OK");
+        tft.setTextColor(TFT_WHITE, TFT_BLACK);
+        tft.setCursor(10, 60);
+        tft.print("IP:");
+        tft.print(WiFi.localIP().toString());
+    } else {
+        tft.setTextColor(TFT_RED, TFT_BLACK);
+        tft.print("WiFi DISCONNECTED");
+        tft.setTextColor(TFT_WHITE, TFT_BLACK);
+    }
+
+    tft.setCursor(10, 78);
+    tft.print("->");
+    tft.print(PC_IP);
+    tft.print(":");
+    tft.print(PC_PORT);
+
+    // 发流状态 (大字)
+    tft.setTextSize(3);
+    tft.setCursor(10, 120);
+    if (streaming) {
+        tft.setTextColor(TFT_RED, TFT_BLACK);
+        tft.print("REC *");
+    } else {
+        tft.setTextColor(TFT_CYAN, TFT_BLACK);
+        tft.print("IDLE");
+    }
+
+    // 包计数
+    tft.setTextColor(TFT_WHITE, TFT_BLACK);
+    tft.setTextSize(2);
+    tft.setCursor(10, 175);
+    tft.print("pkts:");
+    tft.print(packetCount);
+
+    // 提示
+    tft.setTextSize(1);
+    tft.setTextColor(TFT_DARKGREY, TFT_BLACK);
+    tft.setCursor(10, 300);
+    tft.print("Key A: start/stop");
+}
+
+// -------- WiFi 连接 --------
+static void wifi_connect() {
+    tft.fillScreen(TFT_BLACK);
+    tft.setTextColor(TFT_WHITE, TFT_BLACK);
+    tft.setTextSize(2);
+    tft.setCursor(10, 10);
+    tft.print("WiFi...");
+    tft.setTextSize(1);
+    tft.setCursor(10, 45);
+    tft.print(WIFI_SSID);
+
+    WiFi.mode(WIFI_STA);
+    WiFi.begin(WIFI_SSID, WIFI_PASS);
+    Serial.printf("Connecting to %s", WIFI_SSID);
+
+    int dots = 0;
+    while (WiFi.status() != WL_CONNECTED) {
+        delay(500);
+        Serial.print(".");
+        tft.setCursor(10 + (dots % 20) * 6, 70);
+        tft.print(".");
+        dots++;
+        if (dots > 60) {  // ~30s 超时, 重试
+            Serial.println("\nretry...");
+            WiFi.disconnect();
+            WiFi.begin(WIFI_SSID, WIFI_PASS);
+            dots = 0;
+        }
+    }
+    Serial.printf("\nWiFi connected. IP: %s\n", WiFi.localIP().toString().c_str());
+}
+
+void setup() {
+    Serial.begin(115200);
+    delay(3000);                // 等 USB CDC 稳定, 避免早期输出丢失
+    Serial.println("\n\n=== CodeBuddy P1: Mic -> WiFi UDP ===");
+    Serial.flush();
+
+    init_board();               // 扩展芯片 / 背光 / 按键
+    tft.init();
+    tft.setRotation(0);
+
+    Serial.println("\n>>> Setup: I2C scan begin <<<");
+    Serial.flush();
+    // --- 扫描主 I2C 总线, 找 ES7243E (麦克风 ADC) ---
+    // 只扫 47/48 (扩展芯片 XL95x5 + 传感器所在的主总线, 已验证安全)。
+    // 严禁扫 12/13/14/21 —— 那是 LCD 的 SCLK/DC/CS/MOSI, 占用会导致黑屏死机!
+    i2c_scan(47, 48);
+    Serial.flush();
+
+    // 在主总线初始化 ES7243E。I2C 扫描确认实际地址为 0x11。
+    Wire.begin(47, 48);
+    es7243e_init(0x11);
+    Serial.flush();
+
+    wifi_connect();             // 连 WiFi (屏显进度)
+    mic_i2s_init();             // I2S 麦克风
+
+    lcdDirty = true;
+    Serial.printf("Streaming target: %s:%u\n", PC_IP, PC_PORT);
+}
+
+void loop() {
+    uint32_t now = millis();
+
+    // --- 按键 A 边沿检测 (每 ~10ms), 切换发流 ---
+    static uint32_t lastBtn = 0;
+    if (now - lastBtn >= 10) {
+        lastBtn = now;
+        bool a = (digital_read(eP5_KeyA) == 0);   // 按下返回 0
+        if (a && !prev_a) {
+            streaming = !streaming;
+            if (streaming) {
+                i2s_zero_dma_buffer(I2S_NUM_0);    // 丢弃残留
+                Serial.println("Streaming STARTED");
+            } else {
+                Serial.printf("Streaming STOPPED. total pkts=%u\n", packetCount);
+            }
+            lcdDirty = true;
+        }
+        prev_a = a;
+    }
+
+    // --- 采集 + UDP 发送 ---
+    if (streaming) {
+        size_t bytesRead = 0;
+        // 读满一包所需的立体声数据
+        i2s_read(I2S_NUM_0, stereoBuf, sizeof(stereoBuf), &bytesRead, portMAX_DELAY);
+        int frames = bytesRead / 4;   // 每帧 = L(2) + R(2) = 4 字节
+        for (int i = 0; i < frames; i++) {
+            monoBuf[i] = stereoBuf[2 * i + MIC_CHANNEL_OFFSET];
+        }
+        udp.beginPacket(PC_IP, PC_PORT);
+        udp.write((uint8_t*)monoBuf, frames * 2);
+        udp.endPacket();
+        packetCount++;
+
+        // --- 诊断: 每秒打印左右声道的峰值/RMS, 判断麦克风数据在哪 ---
+        {
+            long sumL = 0, sumR = 0;
+            int16_t maxL = 0, maxR = 0;
+            for (int i = 0; i < frames; i++) {
+                int16_t l = stereoBuf[2 * i];
+                int16_t r = stereoBuf[2 * i + 1];
+                int16_t al = l < 0 ? -l : l;
+                int16_t ar = r < 0 ? -r : r;
+                if (al > maxL) maxL = al;
+                if (ar > maxR) maxR = ar;
+                sumL += (long)l * l;
+                sumR += (long)r * r;
+            }
+            static uint32_t diagCnt = 0;
+            if ((diagCnt++ % 31) == 0 && frames > 0) {
+                Serial.printf("[DIAG] L: peak=%5d rms=%4.0f | R: peak=%5d rms=%4.0f | raw[0..3]=%d,%d,%d,%d\n",
+                    maxL, sqrt((double)sumL / frames),
+                    maxR, sqrt((double)sumR / frames),
+                    stereoBuf[0], stereoBuf[1], stereoBuf[2], stereoBuf[3]);
+            }
+        }
+
+        // 每 ~1 秒刷新一次包计数显示 (约 31 包/秒)
+        if (packetCount % 31 == 0) lcdDirty = true;
+    }
+
+    // --- LCD 刷新 (仅需要时) ---
+    if (lcdDirty) {
+        drawStatus();
+        lcdDirty = false;
+    }
+}

@@ -1,0 +1,7 @@
+## CodeBuddy Dongle 依赖组件
+## 直接使用底层 TinyUSB（支持 UAC），不用 esp_tinyusb 高层封装
+dependencies:
+  idf: ">=5.0"
+  espressif/tinyusb: "^0.17.0"
+  espressif/led_strip: "^2.5.3"
+
