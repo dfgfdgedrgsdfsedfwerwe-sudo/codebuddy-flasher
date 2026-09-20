@@ -34,6 +34,7 @@
 #include "FS.h"
 #include "SD.h"
 #include "SPI.h"
+#include "rgb_led.h"
 
 // ======================= SD 卡引脚定义 =======================
 #define SD_CS   40
@@ -1575,11 +1576,18 @@ void setup() {
     // ADC 分压四键初始化
     adc_key_init();  // ADC 四键初始化 (GPIO1, 非 strapping pin)
 
+    // RGB LED 初始化 (GPIO46, 3x WS2812)
+    rgb_led_init();
+    rgb_led_set_mode(LED_MODE_BREATHING, COLOR_INIT, 2000);  // 蓝色呼吸: 初始化中
+
     // 加载初始界面: 开机默认 AI Status (SCREEN_ORDER[0]=5)
     order_index = 0;
     switch_screen(SCREEN_ORDER[order_index]);
 
     Serial.println("Setup complete. A:stream/Enter  B:switch/Backspace  ADC:UP/DOWN/LEFT/RIGHT");
+
+    // 初始化完成 → 绿色常亮表示就绪
+    rgb_led_set_mode(LED_MODE_SOLID, COLOR_READY);
 }
 
 void loop() {
@@ -1601,6 +1609,7 @@ void loop() {
         }
         if (both_now && !both_hold_consumed && (now - both_press_start >= DEMO_TRIGGER_MS)) {
             inject_demo_data();
+            rgb_led_set_mode(LED_MODE_FLOW, COLOR_DEMO, 600);  // 紫色流水灯: 演示模式
             both_hold_consumed = true;
             // 等待释放，避免松手时误触发单键逻辑
             while (digital_read(eP5_KeyA) == 0 || digital_read(eP11_KeyB) == 0) {
@@ -1716,14 +1725,18 @@ void loop() {
                         i2s_zero_dma_buffer(I2S_NUM_0);
                         audio_seq_num = 0;
                         Serial.println("Streaming STARTED");
+                        rgb_led_set_mode(LED_MODE_BREATHING, COLOR_AUDIO_ON, 1500);  // 青色呼吸
                     } else {
                         Serial.printf("Streaming STOPPED. TX=%u FAIL=%u\n", packetCount, sendFailCount);
+                        rgb_led_set_mode(LED_MODE_SOLID, COLOR_READY);  // 恢复绿色就绪
                     }
                     send_key(0x3B, "F2 (voice input)");
+                    rgb_led_indicate_key_press(COLOR_READY);  // 绿色短闪
                     if (current_screen == 0) screen_dirty = true;
                 } else {
                     // 长按: Enter 确认
                     send_key(0x28, "Enter (confirm)");
+                    rgb_led_indicate_key_press(COLOR_READY);  // 绿色短闪
                 }
             }
         }
@@ -1757,6 +1770,7 @@ void loop() {
                 // 短按: 按 SCREEN_ORDER 顺序切换到下一个界面
                 order_index = (order_index + 1) % 6;
                 switch_screen(SCREEN_ORDER[order_index]);
+                rgb_led_indicate_key_press(COLOR_READY);  // 绿色短闪
             }
             // 长按已在持续期间处理，释放时不再动作
         }
@@ -1786,6 +1800,7 @@ void loop() {
                     if (adc_key4_click_count >= 2) {
                         Serial.println("按键4双击检测: 进入演示模式");
                         inject_demo_data();
+                        rgb_led_set_mode(LED_MODE_FLOW, COLOR_DEMO, 600);  // 紫色流水灯: 演示模式
                         adc_key4_click_count = 0;
                         prev_adc_key = ADC_KEY_NONE;
                         return;  // 跳过正常按键处理
@@ -1866,6 +1881,9 @@ void loop() {
         lv_task_handler();
         xSemaphoreGive(xGuiSemaphore);
     }
+
+    // --- RGB LED 动画更新 (非阻塞) ---
+    rgb_led_update();
 
     delay(2);
 }
