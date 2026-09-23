@@ -1,0 +1,525 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bonsai 2 27B 本地模型使用指南</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Microsoft YaHei', Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+            overflow: hidden;
+        }
+
+        header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 40px;
+            text-align: center;
+        }
+
+        header h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.2);
+        }
+
+        header .subtitle {
+            font-size: 1.1em;
+            opacity: 0.9;
+        }
+
+        .content {
+            padding: 40px;
+        }
+
+        h2 {
+            color: #667eea;
+            margin-top: 30px;
+            margin-bottom: 15px;
+            padding-bottom: 10px;
+            border-bottom: 3px solid #667eea;
+            font-size: 1.8em;
+        }
+
+        h3 {
+            color: #764ba2;
+            margin-top: 25px;
+            margin-bottom: 12px;
+            font-size: 1.4em;
+        }
+
+        h4 {
+            color: #555;
+            margin-top: 20px;
+            margin-bottom: 10px;
+            font-size: 1.1em;
+        }
+
+        .info-box {
+            background: #f8f9fa;
+            border-left: 4px solid #667eea;
+            padding: 20px;
+            margin: 20px 0;
+            border-radius: 4px;
+        }
+
+        .warning-box {
+            background: #fff3cd;
+            border-left: 4px solid #ffc107;
+            padding: 20px;
+            margin: 20px 0;
+            border-radius: 4px;
+        }
+
+        .success-box {
+            background: #d4edda;
+            border-left: 4px solid #28a745;
+            padding: 20px;
+            margin: 20px 0;
+            border-radius: 4px;
+        }
+
+        code {
+            background: #f4f4f4;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-family: 'Consolas', 'Monaco', monospace;
+            color: #e83e8c;
+            font-size: 0.9em;
+        }
+
+        pre {
+            background: #2d2d2d;
+            color: #f8f8f2;
+            padding: 20px;
+            border-radius: 6px;
+            overflow-x: auto;
+            margin: 15px 0;
+            font-family: 'Consolas', 'Monaco', monospace;
+            font-size: 0.9em;
+            line-height: 1.5;
+        }
+
+        pre code {
+            background: none;
+            color: #f8f8f2;
+            padding: 0;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 20px 0;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+
+        th, td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid #ddd;
+        }
+
+        th {
+            background: #667eea;
+            color: white;
+            font-weight: 600;
+        }
+
+        tr:hover {
+            background: #f5f5f5;
+        }
+
+        .architecture {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 8px;
+            margin: 20px 0;
+            font-family: monospace;
+            text-align: center;
+            line-height: 2;
+        }
+
+        .step-number {
+            display: inline-block;
+            background: #667eea;
+            color: white;
+            width: 30px;
+            height: 30px;
+            border-radius: 50%;
+            text-align: center;
+            line-height: 30px;
+            margin-right: 10px;
+            font-weight: bold;
+        }
+
+        ul {
+            margin: 15px 0;
+            padding-left: 30px;
+        }
+
+        li {
+            margin: 8px 0;
+        }
+
+        .test-card {
+            background: white;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            padding: 20px;
+            margin: 15px 0;
+            transition: all 0.3s ease;
+        }
+
+        .test-card:hover {
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.3);
+            border-color: #667eea;
+        }
+
+        .test-card h4 {
+            color: #667eea;
+            margin-top: 0;
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 4px 10px;
+            border-radius: 12px;
+            font-size: 0.85em;
+            font-weight: 600;
+            margin-left: 10px;
+        }
+
+        .badge-speed {
+            background: #d4edda;
+            color: #155724;
+        }
+
+        .badge-code {
+            background: #cce5ff;
+            color: #004085;
+        }
+
+        .badge-logic {
+            background: #fff3cd;
+            color: #856404;
+        }
+
+        .badge-stress {
+            background: #f8d7da;
+            color: #721c24;
+        }
+
+        footer {
+            background: #2d2d2d;
+            color: white;
+            text-align: center;
+            padding: 20px;
+            margin-top: 40px;
+        }
+
+        .toc {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 8px;
+            margin: 20px 0;
+        }
+
+        .toc h3 {
+            margin-top: 0;
+            color: #667eea;
+        }
+
+        .toc ul {
+            list-style: none;
+            padding-left: 0;
+        }
+
+        .toc a {
+            color: #667eea;
+            text-decoration: none;
+            transition: color 0.3s ease;
+        }
+
+        .toc a:hover {
+            color: #764ba2;
+            text-decoration: underline;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🌳 Bonsai 2 27B</h1>
+            <p class="subtitle">本地模型使用指南 | 双 RTX 4090 配置</p>
+        </header>
+
+        <div class="content">
+            <!-- 目录 -->
+            <div class="toc">
+                <h3>📑 目录</h3>
+                <ul>
+                    <li><a href="#config">系统配置概览</a></li>
+                    <li><a href="#architecture">架构说明</a></li>
+                    <li><a href="#quickstart">快速启动</a></li>
+                    <li><a href="#tests">性能测试</a></li>
+                    <li><a href="#monitoring">性能监控</a></li>
+                    <li><a href="#notes">重要说明</a></li>
+                    <li><a href="#troubleshooting">故障排除</a></li>
+                </ul>
+            </div>
+
+            <!-- 系统配置 -->
+            <h2 id="config">⚙️ 系统配置概览</h2>
+            <div class="info-box">
+                <ul>
+                    <li><strong>硬件</strong>: 双 RTX 4090 GPU</li>
+                    <li><strong>操作系统</strong>: Windows 11 Pro</li>
+                    <li><strong>模型</strong>: Bonsai 2 27B (PrismML Ternary Model)</li>
+                    <li><strong>推理速度</strong>: ~80 tokens/s</li>
+                    <li><strong>模型文件</strong>: Ternary-Bonsai-2-27B-PTQ1_0.gguf (5.9 GB)</li>
+                </ul>
+            </div>
+
+            <!-- 架构说明 -->
+            <h2 id="architecture">🏗️ 架构说明</h2>
+            <div class="architecture">
+                <div>Claude Code CLI</div>
+                <div>↓</div>
+                <div>LiteLLM 代理 (127.0.0.1:4000, Anthropic API 格式)</div>
+                <div>↓</div>
+                <div>llama-server (127.0.0.1:8080, OpenAI API 格式)</div>
+                <div>↓</div>
+                <div>Bonsai 2 27B (GPU 推理)</div>
+            </div>
+
+            <h3>📁 重要文件位置</h3>
+            <table>
+                <thead>
+                    <tr>
+                        <th>组件</th>
+                        <th>路径</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>模型文件</td>
+                        <td><code>C:\models\bonsai2-27b\</code></td>
+                    </tr>
+                    <tr>
+                        <td>llama.cpp 构建</td>
+                        <td><code>C:\bonsai\llama.cpp\</code></td>
+                    </tr>
+                    <tr>
+                        <td>启动脚本</td>
+                        <td><code>C:\bonsai\start-bonsai-stack.ps1</code></td>
+                    </tr>
+                    <tr>
+                        <td>测试脚本</td>
+                        <td><code>C:\bonsai\test-inference.ps1</code></td>
+                    </tr>
+                    <tr>
+                        <td>LiteLLM 配置</td>
+                        <td><code>C:\bonsai\litellm.config.yaml</code></td>
+                    </tr>
+                    <tr>
+                        <td>Bonsai 项目目录</td>
+                        <td><code>C:\bonsai\claude-bonsai\</code></td>
+                    </tr>
+                    <tr>
+                        <td>项目设置</td>
+                        <td><code>C:\bonsai\claude-bonsai\.claude\settings.json</code></td>
+                    </tr>
+                </tbody>
+            </table>
+
+            <!-- 快速启动 -->
+            <h2 id="quickstart">🚀 快速启动</h2>
+
+            <h3><span class="step-number">1</span>启动 Bonsai 服务栈</h3>
+            <pre><code>C:\bonsai\start-bonsai-stack.ps1</code></pre>
+            <p>此脚本会启动：</p>
+            <ul>
+                <li><strong>llama-server</strong>: 在后台运行 Bonsai 模型推理服务</li>
+                <li><strong>LiteLLM 代理</strong>: 将 Anthropic API 请求转换为 OpenAI 格式</li>
+            </ul>
+
+            <h3><span class="step-number">2</span>使用 Bonsai 模型</h3>
+
+            <h4>方式一：交互式对话</h4>
+            <pre><code>cd C:\bonsai\claude-bonsai
+claude --model bonsai2-27b</code></pre>
+
+            <h4>方式二：单次命令</h4>
+            <pre><code>cd C:\bonsai\claude-bonsai
+claude --model bonsai2-27b --print "你的提示词"</code></pre>
+
+            <!-- 性能测试 -->
+            <h2 id="tests">🧪 性能测试提示词</h2>
+
+            <div class="test-card">
+                <h4>测试 1: 快速验证 <span class="badge badge-code">推荐首测</span></h4>
+                <pre><code>claude --model bonsai2-27b --print "用Python实现快速排序算法，要求：1)包含详细注释 2)时间复杂度分析 3)三种测试案例"</code></pre>
+                <p><strong>预期输出</strong>: 300-500 tokens，用时 4-6 秒</p>
+            </div>
+
+            <div class="test-card">
+                <h4>测试 2: 综合代码生成 <span class="badge badge-code">代码能力</span></h4>
+                <pre><code>claude --model bonsai2-27b --print "实现一个Python类，包含以下功能：1) 二叉搜索树的插入、删除、查找 2) 中序遍历 3) 计算树的高度和节点数。要求代码有详细注释，包含完整的错误处理和单元测试示例。"</code></pre>
+                <p><strong>预期输出</strong>: 500-800 tokens，测试代码生成能力</p>
+            </div>
+
+            <div class="test-card">
+                <h4>测试 3: 长文本生成 <span class="badge badge-speed">速度基准</span></h4>
+                <pre><code>claude --model bonsai2-27b --print "详细解释什么是Transformer架构，包括：自注意力机制的数学原理、多头注意力的作用、位置编码的必要性、前馈网络的结构、LayerNorm的位置选择。每个部分至少200字，用中文解释。"</code></pre>
+                <p><strong>预期输出</strong>: 1000+ tokens，纯速度测试</p>
+            </div>
+
+            <div class="test-card">
+                <h4>测试 4: 复杂逻辑推理 <span class="badge badge-logic">逻辑能力</span></h4>
+                <pre><code>claude --model bonsai2-27b --print "有5个人分别穿红、蓝、绿、黄、白五种颜色的衣服，他们的年龄分别是20、25、30、35、40岁。已知：1)穿红衣服的比穿蓝衣服的年轻 2)穿绿衣服的30岁 3)穿黄衣服的比穿白衣服的年长，且是最年长的 4)穿蓝衣服的25岁。请推理每个人的年龄，并详细说明推理过程。"</code></pre>
+                <p><strong>预期输出</strong>: 测试逻辑推理能力</p>
+            </div>
+
+            <div class="test-card">
+                <h4>测试 5: GPU 压力测试 <span class="badge badge-stress">极限测试</span></h4>
+                <pre><code>claude --model bonsai2-27b --print "生成一个完整的Flask RESTful API项目结构，包括：用户认证系统（JWT）、数据库模型（SQLAlchemy）、CRUD接口、错误处理中间件、日志系统、配置管理、Docker部署文件、完整的README。每个文件都要有完整代码。"</code></pre>
+                <p><strong>预期输出</strong>: 2000+ tokens，极限输出测试</p>
+            </div>
+
+            <!-- 性能监控 -->
+            <h2 id="monitoring">📊 性能监控</h2>
+
+            <h3>查看 GPU 使用情况</h3>
+            <pre><code>nvidia-smi</code></pre>
+
+            <div class="success-box">
+                <strong>观察指标：</strong>
+                <ul>
+                    <li><strong>GPU 利用率</strong>: 推理时应接近 100%</li>
+                    <li><strong>显存占用</strong>: 通常 10-15 GB</li>
+                    <li><strong>温度</strong>: 保持在 80°C 以下</li>
+                </ul>
+            </div>
+
+            <h3>查看推理速度</h3>
+            <p>Claude Code 会在输出结束后显示：</p>
+            <pre><code>Generated in X.XX seconds (XX.X tokens/s)</code></pre>
+            <p><strong>目标速度</strong>: ~80 tokens/s</p>
+
+            <!-- 重要说明 -->
+            <h2 id="notes">⚠️ 重要说明</h2>
+
+            <div class="warning-box">
+                <h3>🔒 配置隔离</h3>
+                <ul>
+                    <li><strong>全局设置不变</strong>: <code>~/.claude/settings.json</code> 保持指向正常 Claude 服务 (<code>http://127.0.0.1:10048</code>)</li>
+                    <li><strong>Bonsai 专用目录</strong>: 只在 <code>C:\bonsai\claude-bonsai</code> 目录下使用才会调用本地模型</li>
+                    <li><strong>配置备份</strong>: <code>~/.claude/settings.json.bak-bonsai</code></li>
+                </ul>
+            </div>
+
+            <div class="info-box">
+                <h3>⚙️ 技术细节</h3>
+                <ul>
+                    <li><strong>推理引擎</strong>: PrismML-Eng/llama.cpp (官方 llama.cpp 不支持 ternary 模型)</li>
+                    <li><strong>可执行文件</strong>: <code>llama-server.exe</code> (不是 <code>main.exe</code>)</li>
+                    <li><strong>GPU 加速</strong>: CUDA 13.3 (<code>-DGGML_CUDA=ON</code>)</li>
+                    <li><strong>模型加载</strong>: <code>-ngl 99</code> (全部层加载到 GPU)</li>
+                    <li><strong>Flash Attention</strong>: <code>-fa on</code></li>
+                    <li><strong>聊天模板</strong>: <code>--chat-template chatml</code> (必需，GGUF 自带模板不兼容 Claude Code)</li>
+                </ul>
+            </div>
+
+            <!-- 故障排除 -->
+            <h2 id="troubleshooting">🔧 故障排除</h2>
+
+            <h3>问题 1: 服务无法启动</h3>
+            <p><strong>检查步骤</strong>:</p>
+            <pre><code># 检查端口是否被占用
+netstat -ano | findstr "8080"
+netstat -ano | findstr "4000"
+
+# 如果被占用，终止进程
+taskkill /PID &lt;进程ID&gt; /F</code></pre>
+
+            <h3>问题 2: 推理速度过慢</h3>
+            <p><strong>可能原因</strong>:</p>
+            <ul>
+                <li>GPU 未正确加载模型（检查 <code>-ngl</code> 参数）</li>
+                <li>其他程序占用 GPU 资源</li>
+                <li>显存不足导致部分模型在 CPU 运行</li>
+            </ul>
+            <p><strong>检查方法</strong>:</p>
+            <pre><code>nvidia-smi</code></pre>
+
+            <h3>问题 3: "System message must be at the beginning" 错误</h3>
+            <p><strong>解决方案</strong>: 确保 llama-server 启动时包含 <code>--chat-template chatml</code> 参数</p>
+
+            <h3>问题 4: Claude Code 无法连接</h3>
+            <p><strong>检查清单</strong>:</p>
+            <ol>
+                <li>确认已运行 <code>start-bonsai-stack.ps1</code></li>
+                <li>确认当前目录在 <code>C:\bonsai\claude-bonsai</code></li>
+                <li>检查 <code>.claude\settings.json</code> 中的 <code>ANTHROPIC_BASE_URL</code> 设置</li>
+            </ol>
+
+            <h2>🛑 停止服务</h2>
+
+            <h3>方式一: 使用任务管理器</h3>
+            <p>找到并结束以下进程：</p>
+            <ul>
+                <li><code>llama-server.exe</code></li>
+                <li><code>litellm</code> (Python 进程)</li>
+            </ul>
+
+            <h3>方式二: 使用 PowerShell</h3>
+            <pre><code># 停止 llama-server
+Get-Process llama-server -ErrorAction SilentlyContinue | Stop-Process -Force
+
+# 停止 LiteLLM
+Get-Process python -ErrorAction SilentlyContinue | Where-Object {$_.CommandLine -like "*litellm*"} | Stop-Process -Force</code></pre>
+
+            <h2>📚 参考资源</h2>
+            <ul>
+                <li><strong>HuggingFace 仓库</strong>: <code>prism-ml/Ternary-Bonsai-2-27B-gguf</code></li>
+                <li><strong>推理引擎</strong>: <code>PrismML-Eng/llama.cpp</code></li>
+                <li><strong>LiteLLM 文档</strong>: <a href="https://docs.litellm.ai/" target="_blank">https://docs.litellm.ai/</a></li>
+                <li><strong>Claude Code 文档</strong>: <a href="https://docs.anthropic.com/claude-code" target="_blank">https://docs.anthropic.com/claude-code</a></li>
+            </ul>
+
+            <div class="success-box" style="margin-top: 30px;">
+                <h3>✅ 版本信息</h3>
+                <ul>
+                    <li><strong>Bonsai 版本</strong>: 2 27B</li>
+                    <li><strong>模型格式</strong>: PTQ1_0 (Ternary GGUF)</li>
+                    <li><strong>最后更新</strong>: 2026-09-23</li>
+                    <li><strong>验证状态</strong>: ✅ 测试通过 (80 tok/s on dual RTX 4090)</li>
+                </ul>
+            </div>
+        </div>
+
+        <footer>
+            <p>🌳 Bonsai 2 27B Local Model Guide | Generated 2026-09-23</p>
+            <p style="margin-top: 10px; opacity: 0.8;">双 RTX 4090 配置 | ~80 tokens/s</p>
+        </footer>
+    </div>
+</body>
+</html>

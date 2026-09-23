@@ -510,6 +510,21 @@
     border: 1px solid var(--border);
   }
 
+  /* Intro */
+  .detail-intro {
+    font-size: 15px;
+    line-height: 1.8;
+    color: var(--text);
+  }
+
+  .detail-intro p {
+    margin: 0 0 12px 0;
+  }
+
+  .detail-intro p:last-child {
+    margin-bottom: 0;
+  }
+
   /* Features List */
   .detail-features-list {
     list-style: none;
@@ -529,6 +544,30 @@
     left: 0;
     color: var(--primary);
     font-weight: bold;
+  }
+
+  /* Usage List */
+  .detail-usage-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    counter-reset: usage-counter;
+  }
+
+  .detail-usage-list li {
+    padding: 8px 0;
+    padding-left: 32px;
+    position: relative;
+    counter-increment: usage-counter;
+  }
+
+  .detail-usage-list li:before {
+    content: counter(usage-counter) ".";
+    position: absolute;
+    left: 0;
+    color: var(--primary);
+    font-weight: bold;
+    font-size: 14px;
   }
 
   /* Tech Stack Tags */
@@ -669,27 +708,27 @@
       <div id="detail-badge" class="detail-badge"></div>
     </div>
 
-    <!-- Screenshots Section -->
-    <div class="detail-section">
-      <h2 class="detail-section-title">📸 项目截图</h2>
-      <div id="detail-screenshots" class="detail-screenshots-grid"></div>
+    <!-- Intro Section -->
+    <div id="detail-intro-section" class="detail-section">
+      <h2 class="detail-section-title">📖 项目介绍</h2>
+      <div id="detail-intro" class="detail-intro"></div>
     </div>
 
-    <!-- Features Section -->
-    <div class="detail-section">
-      <h2 class="detail-section-title">✨ 核心功能</h2>
-      <ul id="detail-features" class="detail-features-list"></ul>
+    <!-- Architecture Section -->
+    <div id="detail-architecture-section" class="detail-section">
+      <h2 class="detail-section-title">🏗️ 技术架构</h2>
+      <ul id="detail-architecture" class="detail-features-list"></ul>
     </div>
 
-    <!-- Tech Stack Section -->
-    <div class="detail-section">
-      <h2 class="detail-section-title">🛠️ 技术栈</h2>
-      <div id="detail-tech" class="detail-tech-tags"></div>
+    <!-- Usage Section -->
+    <div id="detail-usage-section" class="detail-section">
+      <h2 class="detail-section-title">📋 使用说明</h2>
+      <ul id="detail-usage" class="detail-usage-list"></ul>
     </div>
 
     <!-- Changelog Section -->
-    <div class="detail-section">
-      <h2 class="detail-section-title">📝 版本历史</h2>
+    <div id="detail-changelog-section" class="detail-section">
+      <h2 class="detail-section-title">📝 更新日志</h2>
       <div id="detail-changelog" class="detail-changelog"></div>
     </div>
 
@@ -891,6 +930,41 @@ const PROJECTS = [
     launcherUrl: "downloads/ai-mentor-team/启动器.bat",
     fileSize: "180 MB",
     minWindows: "10",
+    intro: `
+      <p>创业团队模拟器是一款 AI 驱动的桌面应用，模拟真实创业团队的协作场景。应用内置多个 AI 角色（CEO、CTO、产品经理、设计师、工程师等），每个角色拥有独立的性格特征、专业知识和决策风格。</p>
+      <p>用户可以提出创业想法，观察团队成员如何讨论、争论、协作并最终形成产品方案。AI 角色之间会产生真实的观点碰撞，帮助用户从多个维度审视自己的创业计划。</p>
+      <p>适用于创业者验证想法、学生学习团队协作、以及对 AI 多角色对话感兴趣的开发者。</p>
+    `,
+    architecture: [
+      "Electron 桌面框架 — 跨平台支持 Windows 10+，原生窗口体验",
+      "AI 多角色引擎 — 基于大语言模型，每个角色独立 prompt 和记忆上下文",
+      "实时对话系统 — 流式输出，角色间自动接力对话，支持用户随时插入",
+      "团队决策机制 — 投票、辩论、共识三种决策模式，模拟真实团队动态",
+      "会议纪要生成 — 自动总结讨论要点、决策结果和待办事项",
+      "本地数据存储 — 所有对话和项目数据保存在本地，保护隐私",
+    ],
+    usage: [
+      "下载安装包（180 MB），双击运行安装程序完成安装",
+      "启动应用后，在欢迎页面输入你的创业想法或项目描述",
+      "选择参与讨论的 AI 团队成员（可自定义角色组合）",
+      "点击「开始讨论」，观察团队成员围绕你的想法展开对话",
+      "随时点击输入框插入自己的观点，引导讨论方向",
+      "讨论结束后查看自动生成的会议纪要和行动计划",
+      "所有项目和对话历史可在「我的项目」中查看和继续",
+    ],
+    changelog: `
+      <div class="changelog-item">
+        <strong>v1.0.0</strong> <span style="color: var(--text-secondary);">2024-12-01</span>
+        <ul>
+          <li>首个正式版本发布</li>
+          <li>支持 6 个 AI 角色（CEO、CTO、产品经理、设计师、前端工程师、后端工程师）</li>
+          <li>实现多角色自动对话与用户插入机制</li>
+          <li>会议纪要自动生成功能</li>
+          <li>本地数据持久化存储</li>
+          <li>Windows 10/11 安装包一键部署</li>
+        </ul>
+      </div>
+    `,
   },
   {
     id: "44_mp3Player2",
@@ -945,6 +1019,36 @@ const PROJECTS = [
       { name: "bootloader", offset: 0x0, file: "firmware/51_K10_wifi/bootloader.bin" },
       { name: "partitions", offset: 0x8000, file: "firmware/51_K10_wifi/partitions.bin" },
       { name: "app", offset: 0x10000, file: "firmware/51_K10_wifi/firmware.bin" },
+    ],
+  },
+  {
+    id: "bonsai-guide",
+    type: "web",
+    name: "Bonsai 2 27B 使用指南",
+    badge: "文档",
+    version: "v1.0.0",
+    description: "Bonsai 2 27B 本地模型启动和使用完整指南 - 双 RTX 4090 配置",
+    icon: "🌳",
+    url: "projects/bonsai-guide/index.html",
+    intro: `
+      <p>Bonsai 2 27B 是 PrismML 开发的三元量化（Ternary）大语言模型，在双 RTX 4090 配置下可达到约 80 tokens/s 的推理速度。</p>
+      <p>本指南详细介绍了如何在 Windows 11 环境下启动和使用 Bonsai 模型，包括通过 LiteLLM 代理集成到 Claude Code CLI 的完整配置流程。</p>
+      <p>文档涵盖快速启动步骤、性能测试提示词、监控方法、故障排除等内容，帮助您快速上手本地 AI 模型部署。</p>
+    `,
+    features: [
+      "🚀 快速启动指南 — 一键启动脚本，自动配置 LiteLLM 和 llama-server",
+      "🧪 5 个性能测试 — 从快速验证到压力测试，全面评估模型能力",
+      "📊 性能监控 — GPU 占用、推理速度实时监控方法",
+      "🔧 故障排除 — 常见问题解决方案，快速定位问题",
+      "⚙️ 技术架构 — 详细的调用链路和配置说明",
+      "🎨 精美界面 — 渐变色设计，卡片式布局，优雅的视觉体验",
+    ],
+    usage: [
+      "点击下方「🌐 打开应用」按钮，在新标签页打开使用指南",
+      "文档包含完整的目录导航，可快速跳转到需要的章节",
+      "建议先阅读「快速启动」章节，了解基本使用流程",
+      "在「性能测试」章节可找到 5 个不同难度的测试提示词",
+      "遇到问题时查看「故障排除」章节的解决方案",
     ],
   },
 
@@ -1033,51 +1137,87 @@ function showDetail(id) {
   const project = PROJECTS.find(p => p.id === id);
   if (!project) return;
 
-  const detailContainer = document.getElementById("detail-container");
-
-  // 构建详情页内容
-  let techStack = '';
-  if (project.type === 'web') {
-    techStack = '<div class="detail-tech"><span>🌐 Web 应用</span><span>浏览器直接访问</span></div>';
-  } else if (project.type === 'android') {
-    techStack = `<div class="detail-tech"><span>🤖 Android</span><span>最低系统: ${project.minAndroid || 'Android 8.0'}</span></div>`;
-  } else if (project.type === 'windows') {
-    techStack = `<div class="detail-tech"><span>🪟 Windows</span><span>最低系统: Windows ${project.minWindows || '10'}</span><span>文件大小: ${project.fileSize || 'N/A'}</span></div>`;
+  // Helper function for badge color
+  function getBadgeColor(badge) {
+    const colors = {
+      'PRO': 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)',
+      'NEW': 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+      'HOT': 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)',
+      'BETA': 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)'
+    };
+    return colors[badge] || 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)';
   }
 
-  let actionButton = '';
+  // 1. 填充 header
+  document.getElementById('detail-icon').textContent = project.icon || '📦';
+  document.getElementById('detail-title').textContent = project.name;
+  document.getElementById('detail-meta').textContent = `版本 ${project.version}`;
+  const badge = document.getElementById('detail-badge');
+  badge.textContent = project.badge || 'STABLE';
+  badge.style.background = getBadgeColor(project.badge);
+
+  // 2. 填充项目介绍
+  const introSection = document.getElementById('detail-intro-section');
+  const introContent = document.getElementById('detail-intro');
+  if (project.intro) {
+    introSection.style.display = 'block';
+    introContent.innerHTML = project.intro;
+  } else {
+    introSection.style.display = 'none';
+  }
+
+  // 3. 填充技术架构
+  const archSection = document.getElementById('detail-architecture-section');
+  const archList = document.getElementById('detail-architecture');
+  if (project.architecture && project.architecture.length > 0) {
+    archSection.style.display = 'block';
+    archList.innerHTML = project.architecture.map(item => `<li>${item}</li>`).join('');
+  } else {
+    archSection.style.display = 'none';
+  }
+
+  // 4. 填充使用说明
+  const usageSection = document.getElementById('detail-usage-section');
+  const usageList = document.getElementById('detail-usage');
+  if (project.usage && project.usage.length > 0) {
+    usageSection.style.display = 'block';
+    usageList.innerHTML = project.usage.map(item => `<li>${item}</li>`).join('');
+  } else {
+    usageSection.style.display = 'none';
+  }
+
+  // 5. 填充更新日志
+  const changelogSection = document.getElementById('detail-changelog-section');
+  const changelogContent = document.getElementById('detail-changelog');
+  if (project.changelog) {
+    changelogSection.style.display = 'block';
+    changelogContent.innerHTML = project.changelog;
+  } else {
+    changelogSection.style.display = 'none';
+  }
+
+  // 6. 填充操作按钮
+  const actionsContainer = document.querySelector('.detail-actions');
+  let actionButtons = '';
+
   if (project.type === 'web') {
-    actionButton = `<a href="${project.url}" target="_blank" class="detail-download-btn">🌐 打开应用</a>`;
+    actionButtons = `<a href="${project.url}" target="_blank" class="detail-download-btn">🌐 打开应用</a>`;
   } else if (project.type === 'windows') {
     if (project.launcherUrl) {
-      actionButton = `<a href="${project.launcherUrl}" download class="detail-download-btn" style="background: linear-gradient(135deg, #10b981 0%, #059669 100%);">▶️ 下载启动器</a>`;
+      actionButtons = `<a href="file:///C:/Program%20Files/ai-mentor-team/" target="_blank" class="detail-download-btn" style="background: linear-gradient(135deg, #10b981 0%, #059669 100%);">▶️ 打开应用</a>`;
     }
     if (project.downloadUrl) {
-      actionButton += `<a href="${project.downloadUrl}" download class="detail-download-btn" style="background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);">📥 下载安装包</a>`;
+      actionButtons += `<a href="${project.downloadUrl}" download class="detail-download-btn" style="background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);">📥 下载安装包</a>`;
     }
   } else if (project.downloadUrl) {
-    actionButton = `<a href="${project.downloadUrl}" class="detail-download-btn">📥 下载安装包</a>`;
+    actionButtons = `<a href="${project.downloadUrl}" class="detail-download-btn">📥 下载安装包</a>`;
   } else {
-    actionButton = `<button class="detail-download-btn" disabled style="opacity: 0.5; cursor: not-allowed;">暂未提供下载</button>`;
+    actionButtons = `<button class="detail-download-btn" disabled style="opacity: 0.5; cursor: not-allowed;">暂未提供下载</button>`;
   }
 
-  detailContainer.innerHTML = `
-    <div class="detail-header">
-      <div class="detail-icon">${project.icon || '📦'}</div>
-      <div>
-        <h2 class="detail-title">${project.name}</h2>
-        <div class="detail-version">${project.version} · ${project.badge}</div>
-      </div>
-    </div>
-    <div class="detail-description">
-      <p>${project.description}</p>
-    </div>
-    ${techStack}
-    <div class="detail-actions">
-      ${actionButton}
-      <button onclick="showView('home')" class="detail-back-btn">返回首页</button>
-    </div>
-  `;
+  actionButtons += `<button onclick="showView('home')" class="detail-back-btn" style="margin-left: 12px; padding: 14px 28px; background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 8px; font-weight: 600; cursor: pointer;">返回首页</button>`;
+
+  actionsContainer.innerHTML = actionButtons;
 }
 window.showDetail = showDetail;
 
